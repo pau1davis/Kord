@@ -88,3 +88,26 @@ In **F# major** these are I, IV, iii, V, and ii, with recurring `G#` major as a 
 **Proceed with `BtcChordRecognizer` as the primary engine (Task 10).** `ChromaTemplateRecognizer` (Task 9) is still built as planned — it remains the always-installs fallback and, more importantly, the engine the test suite uses so tests stay fast and network-free.
 
 Set `KORD_ENGINE_VERSION=btc-1` once Task 10 lands.
+
+---
+
+## Follow-up: key detection on the same sample (Task 12)
+
+| Estimator | Result |
+|---|---|
+| Chord-sequence scorer | B major |
+| Chroma (Krumhansl-Schmuckler) | G♭ / F♯ major |
+| Combined | B major, **confidence 0.45, agreed=False** |
+| Tempo | 123.0 BPM |
+
+The chroma estimate is probably the better one. `A#:min7` occurs 20 times and is a
+diatonic **iii** in F♯ major but non-diatonic in B major; the chord scorer likely
+favored B because `B` and `B:maj7` carry the most total duration. The two keys
+differ by a single note (E vs E♯), so this is a hard case rather than a blunder.
+
+**No fix applied.** The design handled it correctly — the disagreement was
+detected, confidence dropped, and the UI will mark the key uncertain instead of
+asserting it. Tuning the chord-scorer weights belongs to Task 20's 20-song
+verification, where there is enough evidence to tune against rather than one
+sample. Candidate levers if it proves systematic: raise the tonic bonus, weight
+the final chord above the first, or defer to chroma when the two disagree.
