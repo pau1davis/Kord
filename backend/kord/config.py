@@ -12,6 +12,7 @@ class Settings:
     db_path: Path
     scratch_dir: Path
     engine_version: str
+    model_dir: Path
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -19,6 +20,10 @@ class Settings:
         root.mkdir(parents=True, exist_ok=True)
         scratch = root / "scratch"
         scratch.mkdir(exist_ok=True)
+        # Model weights live outside the repository so a 12 MB binary never
+        # enters git history.
+        models = root / "models"
+        models.mkdir(exist_ok=True)
         return cls(
             spotify_client_id=os.environ.get("SPOTIFY_CLIENT_ID", ""),
             redirect_uri=os.environ.get(
@@ -26,4 +31,5 @@ class Settings:
             db_path=root / "kord.db",
             scratch_dir=scratch,
             engine_version=os.environ.get("KORD_ENGINE_VERSION", "chroma-1"),
+            model_dir=models,
         )
