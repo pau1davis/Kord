@@ -1,0 +1,409 @@
+/* Kord — the palette comes from the music, not from a brand.
+   The only fixed accent is brass (bronze-wound strings); every other colour on
+   the page is derived from chord quality via --hue. */
+
+:root {
+  --ink: #0b0d10;
+  --ink-raised: #14171c;
+  --ink-sunken: #090b0e;
+  --line: #232830;
+  --text: #e8e6e1;
+  --text-dim: #8a8f98;
+  --brass: #c8a24a;
+
+  --display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --body: "Karla", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --gutter: clamp(1rem, 4vw, 3rem);
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+:where(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: var(--gutter);
+  padding: 1rem var(--gutter);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--ink) 88%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.wordmark span { color: var(--brass); }
+
+/* ── Search ───────────────────────────────────────────────── */
+
+.search { flex: 1; min-width: 0; position: relative; }
+
+.search form { display: flex; gap: 0.5rem; }
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  background: var(--ink-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.85rem;
+  color: var(--text);
+  font: inherit;
+}
+
+.search input::placeholder { color: var(--text-dim); }
+
+.search button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: 500 0.9rem var(--body);
+  padding: 0 1rem;
+  cursor: pointer;
+}
+
+.search button:hover:not(:disabled) { border-color: var(--brass); color: var(--brass); }
+.search button:disabled { opacity: 0.5; cursor: default; }
+
+.results {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  background: var(--ink-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  max-height: 60vh;
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.results button {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.results button:hover { background: #1c2027; }
+.results img { border-radius: 4px; display: block; }
+.results .no-art { width: 36px; height: 36px; border-radius: 4px; background: var(--line); }
+.results .title { font-weight: 500; }
+.results .artist { color: var(--text-dim); font-size: 0.85rem; }
+
+/* ── Mood field: the page's ground, tinted by the song ────── */
+
+.mood-field {
+  position: relative;
+  min-height: 260px;
+  display: flex;
+  align-items: flex-end;
+  padding: var(--gutter);
+  overflow: hidden;
+  background: var(--ink-sunken);
+  border-bottom: 1px solid var(--line);
+}
+
+.mood-field .blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  animation: kord-drift 18s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.mood-field .veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, var(--ink) 4%, transparent 70%);
+  pointer-events: none;
+}
+
+@keyframes kord-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(4vw, -3vh) scale(1.18); }
+  100% { transform: translate(-3vw, 2vh) scale(0.92); }
+}
+
+.now { position: relative; z-index: 1; }
+
+.now .eyebrow {
+  font: 500 0.7rem var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 0.5rem;
+}
+
+.now h2 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(1.8rem, 5vw, 3.2rem);
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.now .artist { color: var(--text-dim); margin: 0.25rem 0 0; }
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+  font: 400 0.85rem var(--mono);
+  color: var(--text-dim);
+}
+
+.facts b { color: var(--text); font-weight: 500; }
+
+/* ── Song body ────────────────────────────────────────────── */
+
+.song-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--gutter);
+  padding: var(--gutter);
+  align-items: start;
+}
+
+@media (max-width: 820px) {
+  .song-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+.section-label {
+  font: 500 0.7rem var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 0.75rem;
+}
+
+/* ── Chord chart ──────────────────────────────────────────── */
+
+.chart {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chord {
+  --hue: 40;
+  position: relative;
+  min-width: 88px;
+  padding: 0.6rem 0.75rem 0.7rem;
+  background: var(--ink-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* Each card carries its own quality hue, so the chart is also the legend. */
+.chord::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: hsl(var(--hue) 68% 52%);
+}
+
+.chord .time {
+  display: block;
+  font: 400 0.65rem var(--mono);
+  color: var(--text-dim);
+}
+
+.chord .name {
+  display: block;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.chord .roman {
+  display: block;
+  font: 400 0.75rem var(--mono);
+  color: hsl(var(--hue) 55% 68%);
+}
+
+/* Spec section 10: uncertainty is shown, never hidden. */
+.chord.uncertain {
+  border-style: dashed;
+  opacity: 0.55;
+}
+
+.chord.uncertain::after { opacity: 0.4; }
+
+.chord.uncertain .name::after {
+  content: "?";
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  vertical-align: super;
+  color: var(--text-dim);
+  margin-left: 0.15em;
+}
+
+/* ── Theory panel ─────────────────────────────────────────── */
+
+.theory {
+  background: var(--ink-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem 1.25rem;
+  position: sticky;
+  top: 5rem;
+}
+
+@media (max-width: 820px) { .theory { position: static; } }
+
+.theory h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.theory .notes {
+  font: 400 0.9rem var(--mono);
+  color: var(--text-dim);
+  margin: 0.5rem 0 1.25rem;
+  word-spacing: 0.3em;
+}
+
+.theory h4 {
+  font: 500 0.7rem var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 0.5rem;
+}
+
+.theory ul { margin: 0; padding: 0; list-style: none; }
+.theory li { padding: 0.3rem 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+.theory li:last-child { border-bottom: 0; }
+
+.flag {
+  display: block;
+  margin-top: 1rem;
+  padding: 0.6rem 0.7rem;
+  border-left: 2px solid var(--brass);
+  background: color-mix(in srgb, var(--brass) 8%, transparent);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  border-radius: 0 6px 6px 0;
+}
+
+.uncertain-mark {
+  font-family: var(--mono);
+  color: var(--brass);
+  font-size: 0.9rem;
+  cursor: help;
+}
+
+/* ── States ───────────────────────────────────────────────── */
+
+.state {
+  padding: var(--gutter);
+  max-width: 46ch;
+}
+
+.state p { margin: 0 0 0.4rem; }
+.state .detail { color: var(--text-dim); font-size: 0.9rem; font-family: var(--mono); }
+
+.state.working .pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brass);
+  margin-right: 0.5rem;
+  animation: kord-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes kord-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 1; }
+}
+
+.empty {
+  padding: calc(var(--gutter) * 2) var(--gutter);
+  max-width: 40ch;
+}
+
+.empty h2 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  margin: 0 0 0.5rem;
+}
+
+.empty p { color: var(--text-dim); margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mood-field .blob,
+  .state.working .pulse { animation: none; }
+}

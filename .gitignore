@@ -8,3 +8,4 @@ dist/
 .env
 .cache/
 spike/
+frontend/dist/
