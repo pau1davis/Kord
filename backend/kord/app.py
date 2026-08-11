@@ -14,7 +14,7 @@ from kord.spotify import SCOPES, authorize_url, build_pkce_pair
 from kord.theory.palette import build_palette
 from kord.theory.qualities import NO_CHORD, hue_for
 from kord.theory.roman import roman_numeral
-from kord.theory.scales import note_name, scale_for
+from kord.theory.scales import note_name, scale_for, uses_sharps
 
 CONFIDENCE_FLOOR = 0.35
 KEY_CONFIDENCE_FLOOR = 0.6
@@ -26,20 +26,22 @@ _SUFFIX = {
 }
 
 
-def chord_label(root: int, quality: str) -> str:
+def chord_label(root: int, quality: str, prefer_sharps: bool = False) -> str:
+    """Chord symbol spelled to match the key, so B major shows F# rather than Gb."""
     if root < 0 or quality == NO_CHORD:
         return "N.C."
-    return f"{note_name(root)}{_SUFFIX.get(quality, '')}"
+    return f"{note_name(root, prefer_sharps)}{_SUFFIX.get(quality, '')}"
 
 
 def render_analysis(analysis: Analysis) -> dict:
     """Shape an Analysis for the UI: chart, palette and theory from one record."""
     key = analysis.key
+    sharps = uses_sharps(key.root, key.mode)
     chart = [
         {
             "start_s": round(segment.start_s, 3),
             "end_s": round(segment.end_s, 3),
-            "label": chord_label(segment.root, segment.quality),
+            "label": chord_label(segment.root, segment.quality, sharps),
             "quality": segment.quality,
             "roman": roman_numeral(key.root, key.mode, segment.root, segment.quality),
             "hue": hue_for(segment.quality),
