@@ -51,6 +51,10 @@ class AnalysisPipeline:
 
         work_dir = self.scratch_dir / spotify_id
         try:
+            # The pipeline owns this directory, so it creates it. Sources that
+            # return an existing path (local files) never make one, and relying
+            # on the source to do it would be a contract waiting to break.
+            work_dir.mkdir(parents=True, exist_ok=True)
             downloaded = Path(self.source.download(chosen, work_dir))
             wav_path = decode_to_wav(downloaded, work_dir / "decoded.wav")
             y, sr = librosa.load(wav_path, sr=SAMPLE_RATE, mono=True)

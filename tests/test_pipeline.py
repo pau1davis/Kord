@@ -108,6 +108,46 @@ def test_time_scale_stretches_segment_boundaries(tmp_path):
         clean.chord_segments[-1].end_s * scaled.time_scale, rel=1e-6)
 
 
+def test_works_with_a_source_that_does_not_create_the_work_dir(tmp_path):
+    """LocalFileAudioSource returns an existing path and never mkdirs.
+
+    The pipeline owns the scratch directory, so it must create it itself rather
+    than depending on the source to have done so.
+    """
+    library = tmp_path / "library"
+    library.mkdir()
+    audio = library / "Artist - Title.wav"
+    sf.write(audio, synth_chord(0, "major", 2.0, SR), SR)
+
+    class NonCreatingSource:
+        def search(self, artist, title):
+            return [AudioCandidate(str(audio), audio.as_uri(), 2000, audio.name)]
+
+        def download(self, candidate, dest_dir):
+            return Path(candidate.path)      # deliberately does not mkdir
+
+    analysis = build(tmp_path, NonCreatingSource()).run("t1", "Artist", "Title", 2000)
+    assert len(analysis.chord_segments) > 0
+
+
+def test_original_source_file_is_not_deleted(tmp_path):
+    """Cleanup removes the scratch dir, not the user's own library files."""
+    library = tmp_path / "library"
+    library.mkdir()
+    audio = library / "Artist - Title.wav"
+    sf.write(audio, synth_chord(0, "major", 2.0, SR), SR)
+
+    class NonCreatingSource:
+        def search(self, artist, title):
+            return [AudioCandidate(str(audio), audio.as_uri(), 2000, audio.name)]
+
+        def download(self, candidate, dest_dir):
+            return Path(candidate.path)
+
+    build(tmp_path, NonCreatingSource()).run("t1", "Artist", "Title", 2000)
+    assert audio.exists(), "cleanup must not delete files outside the scratch dir"
+
+
 def test_records_the_source_url_and_duration(tmp_path):
     analysis = build(tmp_path, FakeSource(tmp_path, 4000)).run("t1", "Artist", "Title", 4000)
     assert analysis.source_url == "https://example.invalid/v"
