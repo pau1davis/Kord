@@ -68,6 +68,22 @@ def render_analysis(analysis: Analysis) -> dict:
     }
 
 
+def build_app() -> FastAPI:
+    """Production entrypoint: wires the real dependencies from the environment.
+
+    `create_app` takes them injected so tests can supply fakes, which means it
+    cannot be used as a zero-argument uvicorn factory. This is that factory:
+
+        uvicorn kord.app:build_app --factory --port 8000
+    """
+    from kord.spotify import SpotifyClient
+
+    settings = Settings.from_env()
+    conn = db.connect(settings.db_path)
+    db.init_schema(conn)
+    return create_app(settings, SpotifyClient(settings.spotify_client_id), conn)
+
+
 def create_app(settings: Settings, spotify, conn) -> FastAPI:
     app = FastAPI(title="Kord")
     app.state.access_token = None

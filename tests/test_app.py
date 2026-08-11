@@ -141,3 +141,23 @@ def test_failed_job_surfaces_its_reason(client):
     body = c.get("/api/track/t1").json()
     assert body["status"] == "unavailable"
     assert "duration" in body["error"]
+
+
+def test_build_app_is_a_zero_argument_uvicorn_factory(tmp_path, monkeypatch):
+    """The documented run command depends on this signature.
+
+    create_app takes injected dependencies so tests can pass fakes, which makes
+    it unusable as a uvicorn --factory. build_app is the production entrypoint.
+    """
+    import inspect
+
+    from kord.app import build_app
+
+    assert inspect.signature(build_app).parameters == {}
+
+    monkeypatch.setenv("KORD_HOME", str(tmp_path))
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "cid")
+    app = build_app()
+    client = TestClient(app)
+    assert client.get("/api/health").json()["status"] == "ok"
+    assert client.get("/api/auth/status").json()["authenticated"] is False
