@@ -104,3 +104,62 @@ async def test_exchange_code_sends_the_verifier():
     assert tokens["access_token"] == "at"
     assert "code_verifier=verifier456" in seen["body"]
     assert "grant_type=authorization_code" in seen["body"]
+
+
+async def test_spotify_errors_carry_the_reason_spotify_gave():
+    """raise_for_status discards the body, which is where Spotify explains itself."""
+    from kord.spotify import SpotifyError
+
+    def handler(request):
+        return httpx.Response(400, json={
+            "error": {"status": 400, "message": "Only valid bearer authentication supported"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = SpotifyClient("cid", http=http)
+        try:
+            await client.search_tracks("x", "tok")
+        except SpotifyError as exc:
+            assert exc.status == 400
+            assert "bearer authentication" in str(exc)
+        else:
+            raise AssertionError("expected SpotifyError")
+
+
+async def test_spotify_error_survives_a_non_json_body():
+    from kord.spotify import SpotifyError
+
+    def handler(request):
+        return httpx.Response(502, text="<html>gateway</html>")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        try:
+            await SpotifyClient("cid", http=http).search_tracks("x", "tok")
+        except SpotifyError as exc:
+            assert exc.status == 502
+        else:
+            raise AssertionError("expected SpotifyError")
+
+
+async def test_search_limit_respects_the_development_mode_cap():
+    """Spotify's Feb 2026 dev-mode change capped search limit at 10 (was 50).
+
+    Exceeding it returns 400 "Invalid limit", which is misleading enough to cost
+    an afternoon — so the cap is enforced here rather than trusted to callers.
+    """
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["limit"] = int(dict(request.url.params)["limit"])
+        return httpx.Response(200, json={"tracks": {"items": []}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = SpotifyClient("cid", http=http)
+
+        await client.search_tracks("x", "tok")
+        assert seen["limit"] <= 10, "default must not exceed the dev-mode cap"
+
+        await client.search_tracks("x", "tok", limit=50)
+        assert seen["limit"] == 10, "an over-cap request must be clamped, not passed through"
+
+        await client.search_tracks("x", "tok", limit=3)
+        assert seen["limit"] == 3, "requests under the cap pass through unchanged"

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { searchTracks, type TrackSummary } from "../api";
+import { ApiError, searchTracks, type TrackSummary } from "../api";
 
 export function SearchBar({ onPick }: { onPick: (track: TrackSummary) => void }) {
   const [query, setQuery] = useState("");
@@ -24,11 +24,13 @@ export function SearchBar({ onPick }: { onPick: (track: TrackSummary) => void })
     try {
       setResults(await searchTracks(query));
     } catch (e) {
-      setError(
-        e instanceof Error && e.message.startsWith("401")
-          ? "Connect your Spotify account to search."
-          : "Search didn't reach Spotify. Check the server is running.",
-      );
+      if (e instanceof ApiError && e.status === 401) {
+        setError("Connect your Spotify account, then search again.");
+      } else if (e instanceof ApiError) {
+        setError(e.message);
+      } else {
+        setError("Search failed.");
+      }
     } finally {
       setBusy(false);
     }

@@ -4,13 +4,13 @@ import asyncio
 import json
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from kord import db
 from kord.config import Settings
 from kord.engine import resolve_engine_version
 from kord.models import Analysis
-from kord.spotify import SCOPES, authorize_url, build_pkce_pair
+from kord.spotify import SCOPES, SpotifyError, authorize_url, build_pkce_pair
 from kord.theory.palette import build_palette
 from kord.theory.qualities import NO_CHORD, hue_for
 from kord.theory.roman import roman_numeral
@@ -103,14 +103,34 @@ def _auth_problem(headline: str, detail: str) -> HTMLResponse:
 
 def create_app(settings: Settings, spotify, conn) -> FastAPI:
     app = FastAPI(title="Kord")
-    app.state.access_token = None
     app.state.verifier = None
     engine_version = resolve_engine_version(settings)
 
-    def require_token() -> str:
-        if not app.state.access_token:
-            raise HTTPException(status_code=401, detail="not authenticated")
-        return app.state.access_token
+    # Restore the previous session, so restarting the server does not sign the
+    # user out. Only the PKCE verifier is genuinely per-process.
+    session = db.load_session(conn)
+    app.state.access_token = None if session is None or session["expired"] else session["access_token"]
+
+    async def require_token() -> str:
+        if app.state.access_token:
+            return app.state.access_token
+
+        stored = db.load_session(conn)
+        if stored and stored["refresh_token"]:
+            try:
+                tokens = await spotify.refresh(stored["refresh_token"])
+            except SpotifyError:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Your Spotify session expired. Connect again.") from None
+            app.state.access_token = tokens["access_token"]
+            db.save_session(
+                conn, tokens["access_token"], tokens.get("refresh_token"),
+                tokens.get("expires_in", 3600), SCOPES)
+            return app.state.access_token
+
+        raise HTTPException(
+            status_code=401, detail="Connect your Spotify account to search.")
 
     @app.get("/api/health")
     async def health():
@@ -153,21 +173,28 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
         tokens = await spotify.exchange_code(
             code, app.state.verifier, settings.redirect_uri)
         app.state.access_token = tokens["access_token"]
-        if tokens.get("refresh_token"):
-            conn.execute(
-                """INSERT INTO auth (id, refresh_token, scopes) VALUES (1, ?, ?)
-                   ON CONFLICT(id) DO UPDATE SET refresh_token=excluded.refresh_token""",
-                (tokens["refresh_token"], SCOPES))
-            conn.commit()
+        db.save_session(
+            conn, tokens["access_token"], tokens.get("refresh_token"),
+            tokens.get("expires_in", 3600), SCOPES)
         return RedirectResponse(settings.ui_url)
+
+    @app.exception_handler(SpotifyError)
+    async def spotify_error_handler(request, exc: SpotifyError):
+        # Pass Spotify's own words through. A bare 500 tells the user nothing,
+        # and the UI cannot distinguish "your session expired" from "we broke".
+        status = 401 if exc.status in (401, 403) else 502
+        return JSONResponse(
+            status_code=status,
+            content={"detail": exc.message, "spotify_status": exc.status},
+        )
 
     @app.get("/api/search")
     async def search(q: str = Query(min_length=1)):
-        return await spotify.search_tracks(q, require_token())
+        return await spotify.search_tracks(q, await require_token())
 
     @app.get("/api/track/{track_id}")
     async def get_track(track_id: str):
-        track = await spotify.get_track(track_id, require_token())
+        track = await spotify.get_track(track_id, await require_token())
         db.upsert_track(conn, track["id"], track["artist"], track["title"],
                         track["album"], track["duration_ms"])
 

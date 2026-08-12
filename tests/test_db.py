@@ -99,3 +99,52 @@ def test_init_schema_is_idempotent(conn):
     db.init_schema(conn)      # second run must not raise
     db.upsert_track(conn, "t1", "Artist", "Title", "Album", 180000)
     assert conn.execute("SELECT COUNT(*) FROM track").fetchone()[0] == 1
+
+
+def test_session_survives_a_restart(conn):
+    """The access token lived only in memory, so every restart logged the user out."""
+    db.save_session(conn, access_token="at", refresh_token="rt", expires_in=3600)
+    session = db.load_session(conn)
+    assert session["access_token"] == "at"
+    assert session["refresh_token"] == "rt"
+    assert session["expired"] is False
+
+
+def test_expired_session_is_reported_as_expired(conn):
+    db.save_session(conn, access_token="at", refresh_token="rt", expires_in=-10)
+    session = db.load_session(conn)
+    assert session["expired"] is True
+    assert session["refresh_token"] == "rt"      # still usable to get a new one
+
+
+def test_no_session_returns_none(conn):
+    assert db.load_session(conn) is None
+
+
+def test_saving_again_replaces_the_previous_session(conn):
+    db.save_session(conn, access_token="a1", refresh_token="r1", expires_in=3600)
+    db.save_session(conn, access_token="a2", refresh_token="r2", expires_in=3600)
+    assert db.load_session(conn)["access_token"] == "a2"
+    assert conn.execute("SELECT COUNT(*) FROM auth").fetchone()[0] == 1
+
+
+def test_a_refresh_without_a_new_refresh_token_keeps_the_old_one(conn):
+    """Spotify often omits refresh_token on refresh; losing it would end the session."""
+    db.save_session(conn, access_token="a1", refresh_token="r1", expires_in=3600)
+    db.save_session(conn, access_token="a2", refresh_token=None, expires_in=3600)
+    assert db.load_session(conn)["refresh_token"] == "r1"
+
+
+def test_a_refresh_token_alone_is_still_a_usable_session(conn):
+    """Rows written before access tokens were persisted still hold a refresh token.
+
+    Returning None for those would strand the user on a re-login loop when a
+    refresh would have restored them silently.
+    """
+    conn.execute("INSERT INTO auth (id, refresh_token, scopes) VALUES (1, 'rt', 's')")
+    conn.commit()
+    session = db.load_session(conn)
+    assert session is not None
+    assert session["refresh_token"] == "rt"
+    assert session["access_token"] is None
+    assert session["expired"] is True      # nothing usable without refreshing first

@@ -39,10 +39,31 @@ export type TrackResponse = {
   sync_offset_ms?: number;
 };
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch {
+    // Only a genuine transport failure lands here — the server really is down.
+    throw new ApiError(0, "Can't reach the Kord server. Is it running?");
+  }
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    // Surface what the backend said. It passes Spotify's own wording through,
+    // which is far more useful than a status code.
+    const detail = await response
+      .json()
+      .then((body) => body?.detail)
+      .catch(() => null);
+    throw new ApiError(response.status, detail || `Request failed (${response.status})`);
   }
   return (await response.json()) as T;
 }
