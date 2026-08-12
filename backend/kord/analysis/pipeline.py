@@ -9,7 +9,7 @@ import numpy as np
 from kord.analysis.beats import BeatTracker
 from kord.analysis.key import KeyDetector
 from kord.analysis.recognizer import ChordRecognizer
-from kord.analysis.timbre import TimbreProfiler
+from kord.analysis.timbre import heaviness as measure_heaviness
 from kord.audio.decode import SAMPLE_RATE, decode_to_wav, trim_leading_silence
 from kord.audio.validate import select_candidate
 from kord.models import Analysis, BeatGrid, ChordSegment
@@ -29,7 +29,6 @@ class AnalysisPipeline:
         recognizer: ChordRecognizer,
         scratch_dir: Path,
         engine_version: str,
-        profiler: TimbreProfiler | None = None,
         key_detector: KeyDetector | None = None,
         beat_tracker: BeatTracker | None = None,
     ) -> None:
@@ -37,7 +36,6 @@ class AnalysisPipeline:
         self.recognizer = recognizer
         self.scratch_dir = Path(scratch_dir)
         self.engine_version = engine_version
-        self.profiler = profiler or TimbreProfiler()
         self.key_detector = key_detector or KeyDetector()
         self.beat_tracker = beat_tracker or BeatTracker()
 
@@ -61,7 +59,7 @@ class AnalysisPipeline:
             y, offset_ms = trim_leading_silence(y, sr)
 
             segments = self.recognizer.recognize(y, sr)
-            segments = self.profiler.profile(y, sr, segments)
+            track_heaviness = measure_heaviness(y, sr)
             key = self.key_detector.detect(y, sr, segments)
             grid = self.beat_tracker.track(y, sr)
 
@@ -91,6 +89,7 @@ class AnalysisPipeline:
                 sync_offset_ms=offset_ms,
                 flags=["speed_adjusted"] if tier == "speed_adjusted" else [],
                 chord_confidence_mean=float(np.mean(confidences)) if confidences else 0.0,
+                heaviness=track_heaviness,
             )
         finally:
             # Spec: audio is deleted unconditionally, including on failure paths.

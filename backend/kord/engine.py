@@ -14,7 +14,7 @@ from kord.config import Settings
 
 log = logging.getLogger("kord.engine")
 
-BTC_VERSION = "btc-1"
+BTC_VERSION = "btc-2"      # btc-2 adds the heaviness score
 CHROMA_VERSION = "chroma-1"
 
 

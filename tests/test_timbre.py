@@ -1,82 +1,51 @@
 import numpy as np
 
-from kord.analysis.timbre import TimbreProfiler, is_power_chord
-from kord.models import ChordSegment
+
+# Measured on real tracks, 2026-08-12 (90s window at 30s offset):
+#   METAL     Slipknot 5.11/15.37  Sabbath 4.72/17.09  SOAD 5.15/17.11
+#             Metallica 5.63/15.87  Pantera 5.00/19.04
+#   CLEAN     Beatles 5.16/18.81   Bill Evans 6.58/18.82
+#   ACOUSTIC  S&G 7.08/18.56  Elliott Smith 7.95/20.04  Nick Drake 8.00/20.30
+def test_heaviness_scores_metal_high_and_acoustic_at_zero():
+    from kord.analysis.timbre import heaviness_from_features
+
+    assert heaviness_from_features(crest=5.11, contrast=15.37) > 0.7   # Slipknot
+    assert heaviness_from_features(crest=4.72, contrast=17.09) > 0.7   # Sabbath
+    assert heaviness_from_features(crest=5.63, contrast=15.87) > 0.6   # Metallica
+    assert heaviness_from_features(crest=7.95, contrast=20.04) == 0.0  # Elliott Smith
+    assert heaviness_from_features(crest=8.00, contrast=20.30) == 0.0  # Nick Drake
 
 
-def chroma_with(energies: dict[int, float]) -> np.ndarray:
-    vector = np.full(12, 0.02, dtype=np.float32)
-    for pitch_class, value in energies.items():
-        vector[pitch_class] = value
-    return vector
+def test_sparse_acoustic_never_reads_heavy():
+    from kord.analysis.timbre import heaviness_from_features
+    assert heaviness_from_features(crest=7.08, contrast=18.56) < 0.3   # Simon & Garfunkel
+    assert heaviness_from_features(crest=6.58, contrast=18.82) < 0.4   # Bill Evans
 
 
-def test_missing_third_plus_distortion_is_a_power_chord():
-    # C and G loud, both thirds near-silent, high spectral flatness
-    chroma = chroma_with({0: 1.0, 7: 0.9})
-    assert is_power_chord(chroma, root_pc=0, flatness=0.30) is True
+def test_loudness_compressed_pop_is_a_known_ambiguity():
+    """The Beatles remaster is brick-walled, which measures like clipping.
+
+    No feature tested separates it from Pantera, so both land mid-scale rather
+    than one being confidently wrong. Documented, not solved.
+    """
+    from kord.analysis.timbre import heaviness_from_features
+    pantera = heaviness_from_features(crest=5.00, contrast=19.04)
+    beatles = heaviness_from_features(crest=5.16, contrast=18.81)
+    assert 0.3 < pantera < 0.7
+    assert abs(pantera - beatles) < 0.15
 
 
-def test_present_major_third_is_not_a_power_chord_even_when_distorted():
-    chroma = chroma_with({0: 1.0, 4: 0.8, 7: 0.9})
-    assert is_power_chord(chroma, root_pc=0, flatness=0.30) is False
+def test_heaviness_is_bounded():
+    from kord.analysis.timbre import heaviness_from_features
+    assert heaviness_from_features(crest=1.0, contrast=1.0) <= 1.0
+    assert heaviness_from_features(crest=99.0, contrast=99.0) >= 0.0
 
 
-def test_present_minor_third_is_not_a_power_chord_either():
-    chroma = chroma_with({0: 1.0, 3: 0.8, 7: 0.9})
-    assert is_power_chord(chroma, root_pc=0, flatness=0.30) is False
-
-
-def test_missing_third_without_distortion_is_not_a_power_chord():
-    # A clean open fifth is not the heaviness signal we want to color red
-    chroma = chroma_with({0: 1.0, 7: 0.9})
-    assert is_power_chord(chroma, root_pc=0, flatness=0.02) is False
-
-
-def test_silent_segment_is_not_a_power_chord():
-    assert is_power_chord(np.zeros(12, dtype=np.float32), 0, 0.5) is False
-
-
-def test_no_chord_root_is_not_a_power_chord():
-    assert is_power_chord(chroma_with({0: 1.0, 7: 0.9}), -1, 0.5) is False
-
-
-def test_detection_follows_the_root_not_a_fixed_pitch():
-    # Same shape rooted on E (pc 4): E and B loud, thirds absent
-    chroma = chroma_with({4: 1.0, 11: 0.9})
-    assert is_power_chord(chroma, root_pc=4, flatness=0.30) is True
-    assert is_power_chord(chroma, root_pc=0, flatness=0.30) is False
-
-
-def test_profiler_reclassifies_only_matching_segments():
+def test_heaviness_from_audio_runs_on_real_signal():
+    import numpy as np
+    from kord.analysis.timbre import heaviness
     sr = 22050
-    y = np.random.default_rng(0).normal(0, 0.3, sr * 2).astype(np.float32)  # noisy = flat
-    segments = [ChordSegment(0.0, 1.0, 0, "major", 0.9),
-                ChordSegment(1.0, 2.0, 7, "minor", 0.9)]
-    result = TimbreProfiler().profile(y, sr, segments)
-    assert len(result) == 2
-    assert all(s.quality in ("major", "minor", "power") for s in result)
-
-
-def test_profiler_preserves_timings_and_roots():
-    sr = 22050
-    y = np.random.default_rng(0).normal(0, 0.3, sr * 2).astype(np.float32)
-    segments = [ChordSegment(0.0, 1.0, 4, "minor", 0.77)]
-    result = TimbreProfiler().profile(y, sr, segments)
-    assert result[0].start_s == 0.0
-    assert result[0].end_s == 1.0
-    assert result[0].root == 4
-    assert result[0].confidence == 0.77
-
-
-def test_profiler_never_touches_no_chord_segments():
-    sr = 22050
-    y = np.random.default_rng(0).normal(0, 0.3, sr).astype(np.float32)
-    segments = [ChordSegment(0.0, 1.0, -1, "none", 0.0)]
-    assert TimbreProfiler().profile(y, sr, segments)[0].quality == "none"
-
-
-def test_profiler_handles_an_empty_segment_list():
-    sr = 22050
-    y = np.zeros(sr, dtype=np.float32)
-    assert TimbreProfiler().profile(y, sr, []) == []
+    rng = np.random.default_rng(0)
+    clipped = np.clip(rng.normal(0, 1.0, sr * 3).astype(np.float32), -0.3, 0.3)
+    score = heaviness(clipped, sr)
+    assert 0.0 <= score <= 1.0

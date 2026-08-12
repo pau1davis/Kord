@@ -46,3 +46,42 @@ def test_aggregating_many_songs_uses_the_same_code_path():
     stops = build_palette([*song_a, *song_b])
     assert {s.hue for s in stops} == {0, 220}
     assert all(abs(s.weight - 0.5) < 1e-9 for s in stops)
+
+
+HEAVY_HUE = 0
+
+
+def test_heaviness_blends_red_into_the_palette():
+    stops = build_palette([seg(0, 100, "major")], heaviness=0.5)
+    hues = {s.hue: s.weight for s in stops}
+    assert HEAVY_HUE in hues, "a heavy track must contribute red"
+    assert 40 in hues, "the harmony is still represented"
+    assert abs(sum(hues.values()) - 1.0) < 1e-9
+
+
+def test_more_heaviness_means_more_red():
+    def red_share(h):
+        return next((s.weight for s in build_palette([seg(0, 100, "major")], heaviness=h)
+                     if s.hue == HEAVY_HUE), 0.0)
+
+    assert red_share(0.0) == 0.0
+    assert red_share(0.47) > 0.2      # Pantera - visibly warm
+    assert red_share(0.86) > 0.5      # Slipknot - dominantly red
+    assert red_share(0.86) > red_share(0.47) > red_share(0.22)
+
+
+def test_zero_heaviness_leaves_the_palette_untouched():
+    plain = build_palette([seg(0, 70, "minor"), seg(70, 100, "major")])
+    same = build_palette([seg(0, 70, "minor"), seg(70, 100, "major")], heaviness=0.0)
+    assert plain == same
+
+
+def test_red_merges_with_power_chords_rather_than_duplicating():
+    """Power chords already map to hue 0; heaviness must not create a second stop."""
+    stops = build_palette([seg(0, 100, "power")], heaviness=0.5)
+    assert len([s for s in stops if s.hue == HEAVY_HUE]) == 1
+    assert abs(sum(s.weight for s in stops) - 1.0) < 1e-9
+
+
+def test_heaviness_on_a_silent_track_stays_empty():
+    assert build_palette([], heaviness=0.9) == []

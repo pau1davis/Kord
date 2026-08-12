@@ -148,3 +148,32 @@ def test_a_refresh_token_alone_is_still_a_usable_session(conn):
     assert session["refresh_token"] == "rt"
     assert session["access_token"] is None
     assert session["expired"] is True      # nothing usable without refreshing first
+
+
+def test_migrates_a_legacy_auth_table_with_not_null_refresh_token():
+    """The original schema declared refresh_token NOT NULL.
+
+    Spotify usually omits refresh_token when refreshing, so that constraint
+    turns a successful refresh into an IntegrityError. CREATE TABLE IF NOT
+    EXISTS never alters an existing table, so the column must be rebuilt.
+    """
+    c = db.connect(":memory:")
+    c.executescript(
+        """CREATE TABLE auth (
+               id INTEGER PRIMARY KEY CHECK (id = 1),
+               refresh_token TEXT NOT NULL,
+               scopes TEXT NOT NULL,
+               obtained_at TEXT NOT NULL DEFAULT (datetime('now')));
+           INSERT INTO auth (id, refresh_token, scopes) VALUES (1, 'legacy', 'sc');"""
+    )
+    c.commit()
+
+    db.init_schema(c)
+
+    # The stored refresh token survives the rebuild...
+    assert db.load_session(c)["refresh_token"] == "legacy"
+    # ...and a refresh that returns no new refresh token now succeeds.
+    db.save_session(c, access_token="at", refresh_token=None, expires_in=3600)
+    session = db.load_session(c)
+    assert session["access_token"] == "at"
+    assert session["refresh_token"] == "legacy"

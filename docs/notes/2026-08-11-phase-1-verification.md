@@ -129,3 +129,73 @@ better). Kord handled it correctly by flagging the key uncertain rather than
 asserting it, but if the chord scorer is systematically wrong across 20 songs, the
 candidate fixes are recorded in
 [`2026-08-11-chord-engine-spike.md`](2026-08-11-chord-engine-spike.md).
+
+---
+
+## The power-chord detector never worked, and why (2026-08-12)
+
+Mouth for War rendered 96.4% gold. The detector had **never fired on real
+audio** — and could not have.
+
+**Primary cause: `FLATNESS_THRESHOLD = 0.15` was unreachable.** Measured spectral
+flatness on Pantera: median 0.0044, maximum 0.073. Real music lives two orders of
+magnitude below that bar, so zero segments ever passed, and the third-ratio test
+was never even reached.
+
+The unit tests passed because they fed `np.random.normal` — white noise, whose
+flatness is near 1.0. The fixture did not resemble the target material at all.
+
+The secondary threshold was wrong too: measured third-ratio median on Pantera was
+0.686 against a threshold of 0.35, because distortion harmonics smear energy into
+the third.
+
+### Seven features, ten tracks
+
+| track | flatness | centroid | ZCR | crest | contrast |
+|---|---|---|---|---|---|
+| Slipknot – Duality | | | | 5.11 | 15.37 |
+| Black Sabbath – Paranoid | | | | 4.72 | 17.09 |
+| System of a Down – Chop Suey | | | | 5.15 | 17.11 |
+| Metallica – Master of Puppets | 0.0665 | 3350 | 0.157 | 5.63 | 15.87 |
+| Pantera – Mouth for War | 0.00072 | 1276 | 0.061 | 5.00 | 19.04 |
+| Beatles – Here Comes the Sun | | | | 5.16 | 18.81 |
+| Bill Evans – Waltz for Debby | | | | 6.58 | 18.82 |
+| Simon & Garfunkel – Sound of Silence | | | | 7.08 | 18.56 |
+| Elliott Smith – Between the Bars | 0.00045 | 911 | 0.024 | 7.95 | 20.04 |
+| Nick Drake – Pink Moon | 0.0016 | 1314 | 0.039 | 8.00 | 20.30 |
+
+Flatness, centroid and ZCR all fail: **Pantera scores below Nick Drake** on
+flatness and centroid. There is more variance inside metal than between metal and
+acoustic.
+
+**Crest factor is the right signal** — distortion is clipping, and clipping
+crushes peaks toward the RMS. It measures the mechanism rather than a symptom.
+
+**But it cannot be made exact.** Loudness-war mastering crushes crest identically.
+Pantera (5.00 / 19.04) and the Beatles remaster (5.16 / 18.81) are
+indistinguishable on every feature measured. Any rule catching one catches both.
+
+### Resolution: a continuous score, not a class
+
+Chosen deliberately over a binary rule. `heaviness` is the geometric mean of
+ramped crest and contrast, and `build_palette` blends red proportionally, capped
+at 70% so the harmony stays visible.
+
+Verified end to end on 2026-08-12:
+
+| track | heaviness | palette |
+|---|---|---|
+| Pantera – Mouth for War | 0.465 | 32.6% red, 67.4% gold |
+| Nick Drake – Pink Moon | 0.000 | 87.1% gold, 12.9% blue |
+
+Scores across the calibration set: Slipknot 0.86, Sabbath 0.76, Metallica 0.72,
+SOAD 0.70, Beatles 0.49, Pantera 0.47, Bill Evans 0.31, S&G 0.22, Elliott Smith
+and Nick Drake 0.00.
+
+**Known and accepted:** the Beatles remaster scores 0.49, marginally above
+Pantera. Loudness-compressed pop will pick up a red tint. That is the cost of
+the graceful-degradation choice, and it is documented rather than hidden.
+
+The binary `is_power_chord` path and `TimbreProfiler` were deleted rather than
+retuned — a detector that cannot fire is worse than none, because it looks like
+it works.

@@ -57,11 +57,43 @@ def connect(path: str | Path) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(auth)")}
-    for column, kind in _AUTH_COLUMNS.items():
-        if column not in existing:
-            conn.execute(f"ALTER TABLE auth ADD COLUMN {column} {kind}")
+    _migrate_auth(conn)
     conn.commit()
+
+
+def _migrate_auth(conn: sqlite3.Connection) -> None:
+    """Bring an existing auth table up to the current shape.
+
+    The first release declared `refresh_token TEXT NOT NULL`. Spotify usually
+    omits refresh_token when refreshing, so that constraint turns a successful
+    refresh into an IntegrityError. SQLite cannot drop NOT NULL in place and
+    CREATE TABLE IF NOT EXISTS leaves existing tables untouched, so the table is
+    rebuilt when the old constraint is present.
+    """
+    columns = {row["name"]: row for row in conn.execute("PRAGMA table_info(auth)")}
+    if not columns:
+        return
+
+    if columns["refresh_token"]["notnull"]:
+        conn.executescript(
+            """ALTER TABLE auth RENAME TO auth_legacy;
+               CREATE TABLE auth (
+                   id            INTEGER PRIMARY KEY CHECK (id = 1),
+                   refresh_token TEXT,
+                   access_token  TEXT,
+                   expires_at    REAL,
+                   scopes        TEXT,
+                   obtained_at   TEXT NOT NULL DEFAULT (datetime('now'))
+               );
+               INSERT INTO auth (id, refresh_token, scopes)
+                   SELECT id, refresh_token, scopes FROM auth_legacy;
+               DROP TABLE auth_legacy;"""
+        )
+        return
+
+    for column, kind in _AUTH_COLUMNS.items():
+        if column not in columns:
+            conn.execute(f"ALTER TABLE auth ADD COLUMN {column} {kind}")
 
 
 def save_session(

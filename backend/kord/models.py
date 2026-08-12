@@ -63,6 +63,7 @@ class Analysis:
     sync_offset_ms: int
     flags: list[str] = field(default_factory=list)
     chord_confidence_mean: float = 0.0
+    heaviness: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -82,4 +83,5 @@ class Analysis:
             sync_offset_ms=d["sync_offset_ms"],
             flags=list(d.get("flags", [])),
             chord_confidence_mean=d.get("chord_confidence_mean", 0.0),
+            heaviness=d.get("heaviness", 0.0),
         )

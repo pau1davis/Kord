@@ -56,13 +56,14 @@ def render_analysis(analysis: Analysis) -> dict:
         "status": "done",
         "chart": chart,
         "palette": [{"hue": stop.hue, "weight": round(stop.weight, 4)}
-                    for stop in build_palette(analysis.chord_segments)],
+                    for stop in build_palette(analysis.chord_segments, analysis.heaviness)],
         "theory": {
             "key": scale.name,
             "key_uncertain": (not key.agreed) or key.confidence < KEY_CONFIDENCE_FLOOR,
             "tempo": round(analysis.tempo, 1),
             "scale": {"notes": scale.notes, "suggestions": scale.suggestions},
         },
+        "heaviness": round(analysis.heaviness, 3),
         "flags": analysis.flags,
         "sync_offset_ms": analysis.sync_offset_ms,
     }
