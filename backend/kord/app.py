@@ -121,7 +121,7 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
                    ON CONFLICT(id) DO UPDATE SET refresh_token=excluded.refresh_token""",
                 (tokens["refresh_token"], SCOPES))
             conn.commit()
-        return RedirectResponse("/")
+        return RedirectResponse(settings.ui_url)
 
     @app.get("/api/search")
     async def search(q: str = Query(min_length=1)):

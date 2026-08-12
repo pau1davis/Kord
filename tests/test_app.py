@@ -20,8 +20,9 @@ class FakeSpotify:
 def settings_for(tmp_path):
     models = tmp_path / "models"
     models.mkdir(exist_ok=True)
-    return Settings("cid", "http://localhost:8000/cb", tmp_path / "x.db",
-                    tmp_path, "chroma-1", models)
+    return Settings("cid", "http://127.0.0.1:8000/api/auth/callback",
+                    tmp_path / "x.db", tmp_path, "chroma-1", models,
+                    "http://127.0.0.1:5173")
 
 
 @pytest.fixture
@@ -161,3 +162,37 @@ def test_build_app_is_a_zero_argument_uvicorn_factory(tmp_path, monkeypatch):
     client = TestClient(app)
     assert client.get("/api/health").json()["status"] == "ok"
     assert client.get("/api/auth/status").json()["authenticated"] is False
+
+
+class TokenSpotify(FakeSpotify):
+    async def exchange_code(self, code, verifier, redirect_uri):
+        return {"access_token": "at", "refresh_token": "rt"}
+
+
+def test_auth_callback_returns_to_the_ui_not_the_api_root(tmp_path):
+    """Landing on the API's own root after authorising shows a JSON 404.
+
+    The UI runs on a different port, so the callback must send the browser there.
+    """
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    app = create_app(settings_for(tmp_path), TokenSpotify(), conn)
+    client = TestClient(app)
+    client.get("/api/auth/login")                      # establishes the verifier
+    response = client.get(
+        "/api/auth/callback", params={"code": "abc"}, follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "http://127.0.0.1:5173"
+
+
+def test_default_redirect_uri_uses_the_loopback_ip_not_localhost(monkeypatch):
+    """Spotify rejects `localhost` in a redirect URI as insecure.
+
+    It requires the explicit loopback IP, since hostname resolution can be hijacked.
+    """
+    monkeypatch.delenv("SPOTIFY_REDIRECT_URI", raising=False)
+    monkeypatch.setenv("KORD_HOME", "/tmp/kord-uri-test")
+    settings = Settings.from_env()
+    assert "localhost" not in settings.redirect_uri
+    assert settings.redirect_uri.startswith("http://127.0.0.1:8000")
+    assert "localhost" not in settings.ui_url

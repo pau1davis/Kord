@@ -52,7 +52,7 @@ if [ ! -f .env ]; then
   cp .env.example .env
   printf '\n\033[33mOne thing left:\033[0m edit .env and paste your Spotify client ID.\n'
   printf 'Create an app at https://developer.spotify.com/dashboard with redirect URI:\n'
-  printf '  http://localhost:8000/api/auth/callback\n'
+  printf '  http://127.0.0.1:8000/api/auth/callback\n'
 else
   echo ".env already exists, leaving it alone"
 fi

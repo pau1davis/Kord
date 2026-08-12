@@ -29,7 +29,7 @@ brew install ffmpeg yt-dlp
 everything, fetches the 12 MB chord model, and runs the test suite.
 
 Then create a Spotify app at <https://developer.spotify.com/dashboard>, register
-`http://localhost:8000/api/auth/callback` as a redirect URI, and paste the
+`http://127.0.0.1:8000/api/auth/callback` as a redirect URI, and paste the
 **Client ID** into `.env`. There is no client secret — Kord uses PKCE.
 
 No Spotify Premium required. Nothing plays audio in Phase 1.
@@ -48,7 +48,7 @@ recognises major and minor triads only. The worker log says which engine is acti
 ```
 
 Starts the API, the analysis worker and the UI together; Ctrl-C stops all three.
-Open the URL it prints and connect Spotify.
+Open the URL it prints and connect Spotify at <http://127.0.0.1:8000/api/auth/login>.
 
 To run them separately instead:
 

@@ -13,7 +13,7 @@ set -a; source .env; set +a
 if [ -z "${SPOTIFY_CLIENT_ID:-}" ] || [ "${SPOTIFY_CLIENT_ID}" = "your_client_id_here" ]; then
   echo "SPOTIFY_CLIENT_ID is not set in .env." >&2
   echo "Create an app at https://developer.spotify.com/dashboard and paste its Client ID." >&2
-  echo "Set the redirect URI to http://localhost:8000/api/auth/callback" >&2
+  echo "Set the redirect URI to http://127.0.0.1:8000/api/auth/callback" >&2
   exit 1
 fi
 
@@ -43,7 +43,7 @@ echo "Starting UI"
 pids+=($!)
 
 echo
-echo "Kord is starting. The UI will print its URL below (usually http://localhost:5173)."
+echo "Kord is starting. The UI will print its URL below (usually http://127.0.0.1:5173)."
 echo "Press Ctrl-C to stop everything."
 echo
 wait

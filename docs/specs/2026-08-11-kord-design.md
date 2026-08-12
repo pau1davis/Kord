@@ -275,4 +275,4 @@ The genuinely tricky logic is pure functions, so it is cheap to test properly.
 
 ## 14. Setup prerequisites
 
-`brew install ffmpeg yt-dlp`, a Python 3.11 virtualenv, a Spotify developer app with `http://localhost:8000/api/auth/callback` registered as a redirect URI, and scopes `user-top-read user-read-recently-played user-library-read` (adding `streaming user-read-playback-state user-modify-playback-state` in Phase 2). A Last.fm API key is needed only from Phase 3.
+`brew install ffmpeg yt-dlp`, a Python 3.11 virtualenv, a Spotify developer app with `http://127.0.0.1:8000/api/auth/callback` registered as a redirect URI, and scopes `user-top-read user-read-recently-played user-library-read` (adding `streaming user-read-playback-state user-modify-playback-state` in Phase 2). A Last.fm API key is needed only from Phase 3.

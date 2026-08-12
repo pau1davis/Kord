@@ -1,4 +1,3 @@
-import subprocess
 from pathlib import Path
 
 from kord.audio.source import AudioSource, LocalFileAudioSource
@@ -45,10 +44,15 @@ def test_youtube_source_is_never_imported_by_other_modules():
 
     Enforced mechanically rather than by discipline: this is the seam that lets
     the audio provider be swapped by editing a single adapter.
+
+    Only source files count. Compiled bytecode embeds the string too, so once
+    the worker has imported the adapter a __pycache__ entry would otherwise
+    report a breach that does not exist.
     """
-    hits = subprocess.run(
-        ["grep", "-rl", "yt_dlp", str(REPO_ROOT / "backend" / "kord")],
-        capture_output=True, text=True,
-    ).stdout.split()
-    relative = sorted(str(Path(h).relative_to(REPO_ROOT)) for h in hits)
-    assert relative == ["backend/kord/audio/youtube.py"], f"yt-dlp leaked into {relative}"
+    package = REPO_ROOT / "backend" / "kord"
+    hits = sorted(
+        str(path.relative_to(REPO_ROOT))
+        for path in package.rglob("*.py")
+        if "yt_dlp" in path.read_text(encoding="utf-8", errors="ignore")
+    )
+    assert hits == ["backend/kord/audio/youtube.py"], f"yt-dlp leaked into {hits}"
