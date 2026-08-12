@@ -9,3 +9,4 @@ dist/
 .cache/
 spike/
 frontend/dist/
+*.egg-info/

@@ -22,34 +22,41 @@ deletes the audio. Full reasoning in
 
 ```bash
 brew install ffmpeg yt-dlp
-
-/usr/local/bin/python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev,btc]"
-
-python -m kord.analysis.btc --fetch-weights   # ~12 MB, one time
-
-cp .env.example .env                          # add your Spotify client id
-cd frontend && npm install && cd ..
+./setup.sh
 ```
 
-Create a Spotify app at <https://developer.spotify.com/dashboard> and register
-`http://localhost:8000/api/auth/callback` as a redirect URI.
+`setup.sh` checks prerequisites, builds the Python 3.11 virtualenv, installs
+everything, fetches the 12 MB chord model, and runs the test suite.
+
+Then create a Spotify app at <https://developer.spotify.com/dashboard>, register
+`http://localhost:8000/api/auth/callback` as a redirect URI, and paste the
+**Client ID** into `.env`. There is no client secret — Kord uses PKCE.
+
+No Spotify Premium required. Nothing plays audio in Phase 1.
+
+> Run `./setup.sh` rather than pasting the pip command by hand. The extras
+> syntax `.[dev,btc]` is a glob pattern in zsh, so a mis-quoted copy-paste
+> aborts the whole command chain with a single easily-missed line.
 
 Without the model weights Kord still runs, falling back to a chroma baseline that
-recognises major and minor triads only. The startup log says which engine is active.
+recognises major and minor triads only. The worker log says which engine is active.
 
 ## Running
 
-Three processes:
-
 ```bash
-uvicorn kord.app:build_app --factory --reload --port 8000   # api
-python -m kord.queue                                          # analysis worker
-cd frontend && npm run dev                                    # ui
+./run.sh
 ```
 
-Open the Vite URL and connect Spotify.
+Starts the API, the analysis worker and the UI together; Ctrl-C stops all three.
+Open the URL it prints and connect Spotify.
+
+To run them separately instead:
+
+```bash
+.venv/bin/uvicorn kord.app:build_app --factory --port 8000 --app-dir backend
+.venv/bin/python -m kord.queue
+cd frontend && npm run dev
+```
 
 ## How a lookup goes
 
