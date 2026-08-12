@@ -4,7 +4,7 @@ import asyncio
 import json
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
 from kord import db
 from kord.config import Settings
@@ -84,6 +84,23 @@ def build_app() -> FastAPI:
     return create_app(settings, SpotifyClient(settings.spotify_client_id), conn)
 
 
+def _auth_problem(headline: str, detail: str) -> HTMLResponse:
+    """A readable page for a browser, rather than a validation error blob."""
+    return HTMLResponse(
+        status_code=400,
+        content=(
+            "<!doctype html><meta charset=utf-8><title>Kord — sign-in</title>"
+            "<style>body{background:#0b0d10;color:#e8e6e1;font:16px/1.5 "
+            "ui-sans-serif,system-ui,sans-serif;margin:0;display:grid;"
+            "place-items:center;min-height:100vh}main{max-width:44ch;padding:2rem}"
+            "h1{font-size:1.3rem;margin:0 0 .75rem}p{color:#8a8f98;margin:0 0 .75rem}"
+            "code{color:#c8a24a;font-family:ui-monospace,monospace;font-size:.9em}"
+            "a{color:#c8a24a}</style>"
+            f"<main><h1>{headline}</h1><p>{detail}</p></main>"
+        ),
+    )
+
+
 def create_app(settings: Settings, spotify, conn) -> FastAPI:
     app = FastAPI(title="Kord")
     app.state.access_token = None
@@ -111,7 +128,28 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
             settings.spotify_client_id, settings.redirect_uri, challenge, SCOPES))
 
     @app.get("/api/auth/callback")
-    async def callback(code: str):
+    async def callback(code: str | None = None, error: str | None = None):
+        # Spotify sends people here, but so does a stale tab or a hand-typed URL.
+        # A human is reading this page in a browser, so explain rather than 422.
+        if error:
+            return _auth_problem(
+                f"Spotify returned an error: <code>{error}</code>.",
+                "If it says the redirect URI is invalid, the URI registered in "
+                "your Spotify app must exactly match "
+                f"<code>{settings.redirect_uri}</code> — including "
+                "<code>127.0.0.1</code> rather than <code>localhost</code>.")
+        if not code:
+            return _auth_problem(
+                "This page is the end of the Spotify sign-in, not the start.",
+                "Nothing to do here directly — begin at "
+                '<a href="/api/auth/login">/api/auth/login</a>.')
+        if not app.state.verifier:
+            return _auth_problem(
+                "This sign-in attempt has expired.",
+                "The security code is held in memory and is lost when the server "
+                'restarts. Start again at <a href="/api/auth/login">'
+                "/api/auth/login</a>.")
+
         tokens = await spotify.exchange_code(
             code, app.state.verifier, settings.redirect_uri)
         app.state.access_token = tokens["access_token"]

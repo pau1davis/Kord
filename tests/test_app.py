@@ -196,3 +196,36 @@ def test_default_redirect_uri_uses_the_loopback_ip_not_localhost(monkeypatch):
     assert "localhost" not in settings.redirect_uri
     assert settings.redirect_uri.startswith("http://127.0.0.1:8000")
     assert "localhost" not in settings.ui_url
+
+
+def test_callback_without_a_code_explains_itself(tmp_path):
+    """A human reads this page in a browser; a raw 422 tells them nothing."""
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    client = TestClient(create_app(settings_for(tmp_path), TokenSpotify(), conn))
+    response = client.get("/api/auth/callback", follow_redirects=False)
+    assert response.status_code == 400
+    assert "text/html" in response.headers["content-type"]
+    assert "/api/auth/login" in response.text
+
+
+def test_callback_surfaces_spotifys_own_error(tmp_path):
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    client = TestClient(create_app(settings_for(tmp_path), TokenSpotify(), conn))
+    response = client.get(
+        "/api/auth/callback", params={"error": "access_denied"},
+        follow_redirects=False)
+    assert response.status_code == 400
+    assert "access_denied" in response.text
+
+
+def test_callback_without_a_verifier_explains_the_restart(tmp_path):
+    """Server restarts lose the in-memory PKCE verifier."""
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    client = TestClient(create_app(settings_for(tmp_path), TokenSpotify(), conn))
+    response = client.get(
+        "/api/auth/callback", params={"code": "abc"}, follow_redirects=False)
+    assert response.status_code == 400
+    assert "/api/auth/login" in response.text
