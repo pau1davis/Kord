@@ -370,7 +370,10 @@ body {
 }
 
 .state p { margin: 0 0 0.4rem; }
-.state .detail { color: var(--text-dim); font-size: 0.9rem; font-family: var(--mono); }
+/* Also matches when .detail is on the .state block itself, as the no-audio
+   notice is — a bare <p class="state detail"> with no wrapper to descend from. */
+.state .detail,
+.state.detail { color: var(--text-dim); font-size: 0.9rem; font-family: var(--mono); }
 
 .state.working .pulse {
   display: inline-block;
@@ -467,4 +470,18 @@ body {
 .clearloop {
   margin-top: 0.5rem; background: none; border: 0; color: var(--brass);
   font: 400 0.78rem var(--mono); cursor: pointer; padding: 0;
+}
+
+/* ── Chord sheet ──────────────────────────────────────────── */
+
+.chordsheet { padding: 0 var(--gutter) var(--gutter); }
+.chordsheet summary {
+  cursor: pointer; font: 500 0.7rem var(--mono); letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--text-dim); padding: 0.6rem 0;
+}
+.chordsheet summary:hover { color: var(--brass); }
+.chordsheet .chart { margin-top: 0.5rem; }
+.chordsheet .chord button {
+  background: none; border: 0; color: inherit; text-align: left;
+  cursor: pointer; padding: 0; font: inherit; width: 100%;
 }
