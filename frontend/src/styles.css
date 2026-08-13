@@ -447,3 +447,24 @@ body {
                 color: var(--text-dim); border-radius: 999px; padding: 0.35rem 0.7rem;
                 font: 500 0.8rem var(--mono); cursor: pointer; }
 .rates button.on { border-color: var(--brass); color: var(--brass); }
+
+/* ── Song map ─────────────────────────────────────────────── */
+
+.songmap { padding: 0 var(--gutter); }
+.songmap .blocks { position: relative; display: flex; gap: 3px; height: 44px; }
+.songmap .block {
+  flex: 1 1 0; min-width: 0; border: 1px solid var(--line); border-radius: 6px;
+  background: rgba(127, 127, 140, 0.1); color: var(--text-dim);
+  font: 500 0.75rem var(--mono); cursor: pointer;
+}
+.songmap .block:hover { border-color: var(--brass); color: var(--text); }
+.songmap .block.looped { background: color-mix(in srgb, var(--brass) 22%, transparent); }
+.songmap .block.current { border-color: var(--brass); color: var(--text); }
+.songmap .cursor {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: var(--brass); pointer-events: none;
+}
+.clearloop {
+  margin-top: 0.5rem; background: none; border: 0; color: var(--brass);
+  font: 400 0.78rem var(--mono); cursor: pointer; padding: 0;
+}
