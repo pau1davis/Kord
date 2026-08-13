@@ -4,9 +4,12 @@ import asyncio
 import json
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse,
+)
 
 from kord import db
+from kord.audio.store import AudioStore
 from kord.config import Settings
 from kord.engine import resolve_engine_version
 from kord.models import Analysis
@@ -216,6 +219,17 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
     @app.post("/api/track/{track_id}/analyze")
     async def analyze(track_id: str):
         return {"job_id": db.enqueue_job(conn, track_id), "status": "pending"}
+
+    @app.get("/api/track/{track_id}/audio")
+    async def audio(track_id: str):
+        """Serve retained audio. FileResponse handles Range requests, which the
+        browser needs for seeking — without 206 the scrubber and looping break."""
+        store = AudioStore(settings.audio_dir, settings.audio_cap_bytes)
+        path = store.path_for(track_id)
+        if path is None:
+            raise HTTPException(status_code=404, detail="audio not retained")
+        db.touch_played(conn, track_id)
+        return FileResponse(path)
 
     @app.get("/api/track/{track_id}/events")
     async def events(track_id: str):

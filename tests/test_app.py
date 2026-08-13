@@ -231,3 +231,65 @@ def test_callback_without_a_verifier_explains_the_restart(tmp_path):
         "/api/auth/callback", params={"code": "abc"}, follow_redirects=False)
     assert response.status_code == 400
     assert "/api/auth/login" in response.text
+
+
+def test_audio_endpoint_serves_a_retained_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+
+    settings = settings_for(tmp_path)
+    settings.audio_dir.mkdir(parents=True, exist_ok=True)
+    (settings.audio_dir / "t1.webm").write_bytes(b"0123456789")
+    db.set_audio_ext(conn, "t1", ".webm")
+
+    client = TestClient(create_app(settings, FakeSpotify(), conn))
+    response = client.get("/api/track/t1/audio")
+    assert response.status_code == 200
+    assert response.content == b"0123456789"
+
+
+def test_audio_endpoint_honours_range_requests(tmp_path, monkeypatch):
+    """Seeking and looping depend on 206. Without it they break silently."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+
+    settings = settings_for(tmp_path)
+    settings.audio_dir.mkdir(parents=True, exist_ok=True)
+    (settings.audio_dir / "t1.webm").write_bytes(b"0123456789")
+    db.set_audio_ext(conn, "t1", ".webm")
+
+    client = TestClient(create_app(settings, FakeSpotify(), conn))
+    response = client.get("/api/track/t1/audio", headers={"Range": "bytes=2-5"})
+    assert response.status_code == 206
+    assert response.content == b"2345"
+    assert response.headers["content-range"] == "bytes 2-5/10"
+
+
+def test_audio_endpoint_404s_when_evicted(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    client = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    assert client.get("/api/track/t1/audio").status_code == 404
+
+
+def test_playing_records_the_play_for_eviction_ordering(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+
+    settings = settings_for(tmp_path)
+    settings.audio_dir.mkdir(parents=True, exist_ok=True)
+    (settings.audio_dir / "t1.webm").write_bytes(b"x")
+    db.set_audio_ext(conn, "t1", ".webm")
+
+    client = TestClient(create_app(settings, FakeSpotify(), conn))
+    client.get("/api/track/t1/audio")
+    row = conn.execute("SELECT last_played_at FROM track WHERE spotify_id='t1'").fetchone()
+    assert row["last_played_at"] is not None
