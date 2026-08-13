@@ -22,6 +22,13 @@ class ChordSegment:
 
 
 @dataclass(frozen=True)
+class Section:
+    start_s: float
+    end_s: float
+    label: str          # "A", "B", "C"... by order of first appearance
+
+
+@dataclass(frozen=True)
 class KeyEstimate:
     root: int
     mode: str          # "major" | "minor"
@@ -64,6 +71,7 @@ class Analysis:
     flags: list[str] = field(default_factory=list)
     chord_confidence_mean: float = 0.0
     heaviness: float = 0.0
+    sections: list[Section] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -84,4 +92,5 @@ class Analysis:
             flags=list(d.get("flags", [])),
             chord_confidence_mean=d.get("chord_confidence_mean", 0.0),
             heaviness=d.get("heaviness", 0.0),
+            sections=[Section(**s) for s in d.get("sections", [])],
         )
