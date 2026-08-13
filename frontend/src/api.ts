@@ -28,6 +28,8 @@ export type Theory = {
 
 export type TrackStatus = "done" | "pending" | "failed" | "unavailable";
 
+export type SongSection = { start_s: number; end_s: number; label: string };
+
 export type TrackResponse = {
   track: TrackSummary;
   status: TrackStatus;
@@ -37,6 +39,9 @@ export type TrackResponse = {
   flags?: string[];
   theory?: Theory;
   sync_offset_ms?: number;
+  sections?: SongSection[];
+  has_audio?: boolean;
+  beats?: number[];
 };
 
 export class ApiError extends Error {
