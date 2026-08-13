@@ -50,3 +50,70 @@ def test_tempo_is_a_plain_float_not_an_array():
     grid = BeatTracker().track(click_track(120.0, 6.0), SR)
     assert isinstance(grid.tempo, float)
     assert all(isinstance(t, float) for t in grid.times_s)
+
+
+import pytest
+
+from kord.analysis.beats import correct_double_time
+
+
+def env_for(frames, strengths):
+    """An onset envelope where `frames[i]` has strength `strengths[i]`."""
+    env = np.zeros(int(max(frames)) + 1, dtype=np.float32)
+    for f, s in zip(frames, strengths):
+        env[f] = s
+    return env
+
+
+def test_halves_a_grid_whose_alternate_beats_are_weak():
+    frames = np.arange(0, 160, 10)
+    strengths = [10.0 if i % 2 == 0 else 3.0 for i in range(len(frames))]
+    out_frames, out_tempo = correct_double_time(
+        frames, 184.0, env_for(frames, strengths))
+    assert out_tempo == pytest.approx(92.0)
+    assert list(out_frames) == list(frames[0::2])
+
+
+def test_keeps_the_phase_that_carries_the_accents():
+    """The strong beats are the odd indices here, so those must survive."""
+    frames = np.arange(0, 160, 10)
+    strengths = [3.0 if i % 2 == 0 else 10.0 for i in range(len(frames))]
+    out_frames, _ = correct_double_time(
+        frames, 184.0, env_for(frames, strengths))
+    assert list(out_frames) == list(frames[1::2])
+
+
+def test_leaves_a_uniform_grid_alone():
+    frames = np.arange(0, 160, 10)
+    strengths = [10.0] * len(frames)
+    out_frames, out_tempo = correct_double_time(
+        frames, 184.0, env_for(frames, strengths))
+    assert out_tempo == pytest.approx(184.0)
+    assert list(out_frames) == list(frames)
+
+
+def test_never_halves_below_the_floor():
+    """A true 100 BPM must never become 50, whatever the accents look like."""
+    frames = np.arange(0, 160, 10)
+    strengths = [10.0 if i % 2 == 0 else 1.0 for i in range(len(frames))]
+    out_frames, out_tempo = correct_double_time(
+        frames, 100.0, env_for(frames, strengths))
+    assert out_tempo == pytest.approx(100.0)
+    assert list(out_frames) == list(frames)
+
+
+def test_too_few_beats_is_left_alone():
+    frames = np.array([0, 10])
+    out_frames, out_tempo = correct_double_time(
+        frames, 184.0, env_for(frames, [10.0, 1.0]))
+    assert out_tempo == pytest.approx(184.0)
+    assert list(out_frames) == [0, 10]
+
+
+def test_ambiguous_margin_is_left_alone():
+    """0.9 is not a clear enough difference to act on."""
+    frames = np.arange(0, 160, 10)
+    strengths = [10.0 if i % 2 == 0 else 9.0 for i in range(len(frames))]
+    _, out_tempo = correct_double_time(
+        frames, 184.0, env_for(frames, strengths))
+    assert out_tempo == pytest.approx(184.0)
