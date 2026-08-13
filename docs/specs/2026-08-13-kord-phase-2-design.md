@@ -9,292 +9,318 @@
 ## 1. What this adds
 
 Play a song start to finish while the chord chart follows it, so you can learn the
-song with the guitar in your hands. The song view stops being a wall of chord
-cards and becomes a play-along screen: one large current chord, a map of the whole
-song you can click and loop, and the full chart collapsed underneath.
+song with the guitar in your hands — including **slowing it down** to work out a
+hard passage. The song view stops being a wall of chord cards and becomes a
+play-along screen: one large current chord, a map of the whole song you can click
+and loop, and the full chart collapsed underneath.
 
-Four capabilities, chosen together:
+Five capabilities:
 
 1. **Follow along** — the current chord, large, with the next one visible
-2. **Loop a section** — pick a range and drill it
-3. **Jump to any point** — click the map or a chord to seek there
-4. **Bar and beat context** — see where changes land against the beat
+2. **Slow down** — 0.5×, 0.75×, 1× with the pitch unchanged
+3. **Loop a range** — pick a passage and drill it
+4. **Jump to any point** — click the map or a chord to seek there
+5. **Bar and beat context** — see where changes land against the beat
 
 ---
 
-## 2. What Phase 1 already provides
+## 2. The central decision: Kord plays the audio it analysed
 
-No new analysis data is needed for sync. Verified against the cached
-`Mouth for War` analysis on 2026-08-13:
+Phase 2 was first designed around Spotify's Web Playback SDK. That design was
+abandoned for one disqualifying reason and replaced with something simpler.
 
-| Stored | Value |
-|---|---|
-| Chord segments with `start_s` / `end_s` | 197 |
-| Beat grid | 408 beats at 103 BPM |
-| `sync_offset_ms` (leading-silence trim) | 511 |
-| `time_scale` (speed correction) | 1.0 |
+**Spotify's SDK has no playback-rate control.** Slowing a song down is the single
+most useful thing when learning a difficult passage, and it is impossible with
+Spotify as the audio source. The audio is DRM-protected, so it cannot be tapped
+and re-rendered either.
 
-Sections are the one genuinely new analysis output (§5).
+Kord already downloads audio in order to analyse it, then deletes it. **Keeping
+that file and playing it back** solves the problem — and collapses most of the
+rest of the design with it:
+
+| | Spotify SDK | Playing the analysed audio |
+|---|---|---|
+| Slow down | impossible | `playbackRate`, pitch preserved |
+| Sync | unmeasurable; calibrated by ear per song | **exact by construction** |
+| Drift over a song | possible, needs re-anchoring | impossible — one clock |
+| Looping | seek-based, snapped to sections | sample-accurate, any range |
+| Premium required | yes | no |
+| Re-authorisation | yes, three new scopes | none |
+| Works offline | no | yes, once cached |
+
+**The sync problem does not get solved. It stops existing.** Chord timestamps were
+derived from this exact file, so playing it means chart time and audio time are
+the same clock. There is no offset to calibrate, no nudge control, no drift, and
+no gate needed on whether sync can be made to work.
+
+### 2.1 What this costs
+
+- **Audio is retained** rather than deleted. Phase 1 made deletion load-bearing
+  because of disk pressure, but that decision was taken when playback was out of
+  scope. Roughly 4 MB per song, capped and evicted (§3).
+- **It leans harder on yt-dlp.** Analysing downloaded audio is one thing; playing
+  it back is a further step. Same personal-machine, same quarantined module, but
+  a real escalation of the Phase 1 decision rather than a free one.
+- **Practice time no longer counts as Spotify streams**, so it does not reach the
+  artist. Small, but a genuine consequence of the switch.
+- **Audio is YouTube Opus, not Spotify's master.** Adequate for practice.
+
+Spotify keeps the roles only it can fill: identity, search, metadata, and the
+listening history that Phase 3 needs.
 
 ---
 
-## 3. Constraints verified before designing
+## 3. Audio retention
 
-### 3.1 Playback is possible, with conditions
+Downloads are Opus in a WebM container, 2.6–5.1 MB per song (measured), which
+Chrome plays natively. Stored at `~/.kord/audio/{spotify_id}.{ext}`.
 
-The Web Playback SDK still functions for development-mode apps. It requires:
+**Eviction is least-recently-played, against a configurable cap** (`KORD_AUDIO_CAP_GB`,
+default 2 GB — roughly 500 songs). `track.last_played_at` is touched on playback;
+when the cap is exceeded, the oldest files are removed until it is not. An evicted
+song is not broken: its analysis is cached forever and the audio re-downloads on
+next play.
 
-- **Full Spotify Premium** for the account. Mobile-only tiers (Lite, Mini) do not
-  qualify. Since 2026-03-09 Spotify requires dev-mode app *owners* to hold Premium
-  regardless, so this is already satisfied.
-- **Three additional scopes**: `streaming`, `user-read-email`, `user-read-private`.
-  Adding them invalidates the current grant, so re-authorization is required once.
-
-### 3.2 There is no playback-rate control
-
-The SDK cannot slow playback down. Half-speed practice — the most useful thing
-when learning a difficult passage — **is not achievable with Spotify as the audio
-source** and is explicitly out of scope. Looping is the practice feature that
-survives this limitation, which is why it is included.
-
-### 3.3 Sync cannot be measured, only calibrated
-
-Chord timestamps derive from YouTube audio; playback comes from Spotify's master.
-Spotify supplies no audio, so the offset between them can never be measured
-directly (Phase 1 spec §2.2). It must be set by ear, once per song, and remembered.
-
-### 3.4 Structural segmentation is affordable
-
-Measured on `Mouth for War` (4.5 min): **1.7 s**, producing 8 sections of 6.5–72 s.
-Roughly 25% added to the ~6.4 s analysis. Acceptable.
+**Analysis never depends on retained audio.** The pipeline continues to work on a
+temporary copy and clean up after itself; retention is a separate, explicit copy
+into the audio store. A failure to retain must not fail an analysis.
 
 ---
 
 ## 4. Architecture
 
-Playback lives entirely in the browser because the SDK requires it. The backend
-gains little, since Phase 1 already stores the timing data.
-
 ```
-Browser                                  Server
-├─ player.ts        SDK wrapper          ├─ SectionDetector    (new, in pipeline)
-├─ useSyncedPosition  interpolation      ├─ SCOPES + streaming
-├─ PlayAlong        hero chord           ├─ GET /api/auth/token   (new)
-├─ SongMap          sections, loop       └─ PUT /api/track/{id}/offset  (new)
-└─ ChordSheet       full chart, collapsed
+Browser                              Server
+├─ player.ts     <audio> wrapper     ├─ SectionDetector      (new, in pipeline)
+├─ usePlayhead   reads currentTime   ├─ AudioStore           (new: retain, evict)
+├─ PlayAlong     hero chord          └─ GET /api/track/{id}/audio   (new)
+├─ SongMap       sections, loop
+└─ ChordSheet    full chart, collapsed
 ```
 
-### 4.1 The browser needs an access token
+No new OAuth scopes. No access token in the browser. The Phase 1 security posture
+is unchanged — a direct benefit of dropping the SDK.
 
-The SDK runs client-side and requires an OAuth token there. Phase 1 deliberately
-kept tokens server-side, with the browser never seeing one.
+### 4.1 Serving audio
 
-**Phase 2 exposes `GET /api/auth/token` to the local UI.** This is a real
-reduction in the Phase 1 security posture, accepted because Kord binds to
-`127.0.0.1` and serves one user. It is recorded here explicitly so it is a
-decision rather than an oversight, and it is the first thing to revisit if Kord
-is ever exposed beyond localhost.
+`GET /api/track/{id}/audio` streams the stored file and **must support HTTP Range
+requests**. The browser issues ranged requests to seek, so without `206 Partial
+Content` the scrubber and looping will not work. This is the one piece of server
+plumbing with a real failure mode, and it gets a direct test.
 
-The endpoint returns the current access token, refreshing server-side first if it
-has expired, so the SDK's `getOAuthToken` callback stays valid across the
-one-hour token lifetime without the user noticing.
+Returns 404 when the file has been evicted, which the UI treats as "re-fetch",
+not as an error.
 
 ---
 
-## 5. Sections
+## 5. Sync, and the correction that must be removed
 
-### 5.1 Detection
+### 5.1 The only offset is a known constant
+
+Phase 1 trims leading silence before analysis, so chord timestamps start at the
+first sound while the file still contains the silence. That amount is already
+stored exactly:
+
+```
+chart_time_s = audio.currentTime - analysis.sync_offset_ms / 1000
+```
+
+`sync_offset_ms` is 511 ms for `Mouth for War`, 46 ms for `Pink Moon`. It is
+measured, not guessed. There is nothing for the user to calibrate.
+
+### 5.2 Speed-scaling must stop being applied
+
+Phase 1 rescales chord timestamps and the beat grid by `time_scale` when a
+YouTube upload is slightly sped up, so the chart lines up with **Spotify's**
+master. Playing the local file makes that correction actively wrong.
+
+This is live, not hypothetical: the cached `Pink Moon` analysis has
+`time_scale=0.992`. Playing the local file against rescaled timestamps would
+drift about **1.4 seconds over three minutes** — plainly audible.
+
+**Change:** the pipeline stops rescaling timestamps. Detection of speed
+adjustment is kept, because a sped-up upload is also pitch-shifted and therefore
+makes the detected key unreliable — the `speed_adjusted` flag and its UI warning
+stay. Only the timestamp rescaling is removed.
+
+`time_scale` remains on the record as an observation, no longer applied.
+
+### 5.3 Reading the playhead
+
+`audio.currentTime`, read once per `requestAnimationFrame`. No interpolation, no
+event anchoring, no extrapolation — the element exposes an exact clock on demand.
+The `usePlayhead` hook is a handful of lines where the SDK version needed careful
+drift handling.
+
+### 5.4 Finding the current chord
+
+Binary search over `chord_segments` for the segment containing `chart_time_s`.
+
+### 5.5 Looping
+
+When `chart_time_s` passes `loop_end`, set
+`audio.currentTime = loop_start + sync_offset_s`. Sample-accurate and immediate,
+so no seek-storm guard is needed. Ranges are arbitrary; section edges are offered
+as convenient snap points, not imposed.
+
+---
+
+## 6. Slowing down
+
+`audio.playbackRate` at 0.5×, 0.75× or 1×, with `preservesPitch` left at its
+default of `true` so the song stays in the same key. Supported across all current
+browsers since December 2023, reliable across 0.25–4.0.
+
+Chart timing needs no adjustment whatsoever: `currentTime` advances in real
+seconds of *audio*, so chord times continue to match at any rate. This falls out
+of using one clock.
+
+Rate is per-session, not persisted — it is a practice mode, not a property of the
+song.
+
+---
+
+## 7. Sections
+
+### 7.1 Detection
 
 Agglomerative clustering over stacked chroma and MFCC features. Chroma captures
 harmonic change; MFCC captures timbral change, which is what separates a quiet
-verse from a loud chorus when the chords are identical — the common case in the
-music this is aimed at.
+verse from a loud chorus when the chords are identical.
 
-Section count scales with duration rather than being fixed:
-`n = clamp(round(duration_s / 30), 4, 12)`, so a two-minute song and a
-seven-minute one both get useful granularity.
+Section count scales with duration: `n = clamp(round(duration_s / 30), 4, 12)`.
 
-### 5.2 Labelling
+Measured cost on `Mouth for War` (4.5 min): **1.7 s**, producing 8 sections of
+6.5–72 s. About 25% added to the ~6.4 s analysis.
 
-A second pass over the detected sections: take each section's mean feature
-vector, cluster by similarity, and assign labels **A, B, C…** in order of first
-appearance. A song reads `A B A B C B`.
+### 7.2 Labelling
 
-Labels are deliberately not "verse" and "chorus". The detector knows what
-repeats, not what those repeats are called, and naming them would assert more
-than the analysis supports.
+Each section's mean feature vector is clustered by similarity, and labels **A, B,
+C…** are assigned in order of first appearance. A song reads `A B A B C B`.
 
-### 5.3 Storage
+Not "verse" and "chorus": the detector knows what repeats, not what those repeats
+are called, and naming them would assert more than the analysis supports.
 
-`Section(start_s, end_s, label)`, stored on `Analysis` as `sections`. Requires an
-engine version bump to **`btc-3`**, which invalidates cached analyses so they
-recompute — the same mechanism Phase 1 established.
+### 7.3 Storage
+
+`Section(start_s, end_s, label)` on `Analysis`. Requires an engine bump to
+**`btc-3`**, which also picks up the removal of timestamp rescaling (§5.2).
 
 ---
 
-## 6. Sync
+## 8. The song view
 
-### 6.1 Position tracking
-
-The SDK reports position sparsely: on state changes and roughly every few hundred
-milliseconds. Between reports, position is extrapolated:
-
-```
-estimated_ms = last_position_ms + (performance.now() - last_event_wallclock_ms)
-```
-
-**Re-anchored on every state event**, so extrapolation error can never accumulate.
-When paused, the elapsed term is zero. Seeks arrive as state events and re-anchor
-naturally.
-
-### 6.2 Applying the offset
-
-```
-chart_time_s = estimated_ms / 1000 - user_offset_s
-```
-
-`user_offset_s` (from `track.user_offset_ms`, §6.3) starts at 0 and is adjusted by ear with arrow keys in 10 ms steps
-while the song plays. It is stored **per track**, not per analysis, so
-re-analysing a song does not discard calibration the user did by hand.
-
-### 6.3 Two different offsets, kept apart
-
-Phase 1 already stores `sync_offset_ms` on the analysis — 511 ms for
-`Mouth for War`. **That is not this offset.** It records how much leading silence
-was trimmed from the *YouTube* audio, which is why chord timestamps begin at the
-first sound rather than at the file start. It is a property of the analysis.
-
-The Phase 2 offset is a property of *the user's calibration against Spotify's
-master*, which no analysis can know. Conflating them would mean re-analysis
-silently discarding hand calibration, or a re-download with different padding
-shifting a chart the user had already corrected.
-
-They are stored separately:
-
-- `analysis.sync_offset_ms` — unchanged, owned by the pipeline
-- `track.user_offset_ms` — new column, owned by the user, written by
-  `PUT /api/track/{id}/offset`, defaulting to 0 and surviving re-analysis
-
-### 6.4 Finding the current chord
-
-Binary search over `chord_segments` for the segment containing `chart_time_s`. A
-`requestAnimationFrame` loop drives the display.
-
-### 6.5 Looping
-
-When `chart_time_s` passes `loop_end`, seek to `loop_start + user_offset_s`. A
-guard interval after each seek prevents a boundary landing mid-frame from firing
-repeated seeks. Loop boundaries snap to section edges.
-
----
-
-## 7. The song view
-
-### 7.1 Hero chord, and the flicker problem
+### 8.1 Hero chord, and the flicker problem
 
 `Mouth for War` changes chord **171 times in 4 minutes**, sometimes twice a
 second. Rendering every change in a large display strobes unreadably.
 
 Before display, consecutive segments shorter than **400 ms** collapse into
-whichever chord dominates the span. This is a pure function producing a *display
-track*; the underlying analysis is untouched and the collapsed chord sheet still
-lists every change. The display is a view, not a truncation.
+whichever chord dominates the span — a pure function producing a *display track*.
+The analysis is untouched and the collapsed chord sheet still lists every change.
+The display is a view, not a truncation.
 
 The next chord is shown alongside with its countdown, so the hand can move early.
 
-### 7.2 Song map
+### 8.2 Song map
 
 A horizontal strip of section blocks, width proportional to duration, with a
-playhead travelling through. Click a block to seek. Drag across blocks to set a
-loop. The current section is highlighted.
+playhead travelling through. Click to seek. Drag to set a loop. Current section
+highlighted.
 
-### 7.3 Chord sheet
+### 8.3 Chord sheet
 
-The full chart from Phase 1, collapsed by default behind a disclosure. Every
-chord, every timestamp, low-confidence ones still dashed. Clicking a chord seeks
-to it.
+The Phase 1 chart, collapsed by default behind a disclosure. Every chord, every
+timestamp, low-confidence ones still dashed. Clicking a chord seeks to it.
 
-### 7.4 Beat context
+### 8.4 Beat context
 
-Beat marks from the stored grid, shown under the hero chord so it is visible
-whether a change lands on beat 1. Rendered from `beat_grid.times_s`, shifted by
-the same offset as everything else.
+Beat marks from the stored grid under the hero chord, so it is visible whether a
+change lands on beat 1.
 
 ---
 
-## 8. Error handling
-
-Ordered by likelihood.
+## 9. Error handling
 
 | Condition | Behaviour |
 |---|---|
-| No Premium | SDK returns `account_error`. Playback controls hidden; charts, theory and mood ring work exactly as in Phase 1. Kord degrades to its current self. |
-| Token expires mid-session | SDK re-requests via `getOAuthToken`; the endpoint refreshes server-side. Invisible. |
-| Safari | EME support is patchy. Detected and stated plainly rather than failing silently. |
-| SDK script unreachable | Play-along disabled with a message; the rest of the page is unaffected. |
-| Seek storm at a loop boundary | Guard interval after each seek. |
-| Song has no analysis yet | Play-along hidden until analysis completes; existing pending/failed states unchanged. |
+| Audio evicted | 404 from the audio endpoint; UI re-requests analysis, which re-downloads. Presented as a short wait, not an error. |
+| Audio never retained (analysed before Phase 2) | Same path as eviction — re-download on first play. |
+| Range requests unsupported by the server | Seeking and looping silently break. Directly tested (§4.1) rather than trusted. |
+| Disk cap reached | Eviction runs before writing. If a single file still will not fit, playback is refused with a clear message rather than filling the disk. |
+| Decode failure in the browser | Play-along hidden; chart, theory and mood ring unaffected. |
+| Song has no analysis yet | Play-along hidden until analysis completes; existing pending and failed states unchanged. |
 
 **Principle, carried from Phase 1:** every degraded path leaves the Phase 1
-experience intact. Playback is additive; nothing that works today may stop
-working because playback is unavailable.
+experience intact. Playback is additive; nothing that works today may stop working
+because playback is unavailable.
 
 ---
 
-## 9. Testing
+## 10. Testing
 
 The tricky logic is pure and gets real tests:
 
-- **Position interpolation** — extrapolation between events, re-anchoring, paused
-  state, seek handling
 - **Current-chord lookup** — binary search including boundaries, gaps, and times
   before the first or after the last segment
-- **Loop wrap-around** — crossing the end, the guard interval, offset applied to
-  the seek target
+- **Chart-time conversion** — `currentTime` minus the trim offset, including a
+  song with a non-zero trim
+- **Loop wrap-around** — crossing the end, the seek target including the offset
 - **Short-segment collapsing** — 171 changes reduce to a readable track; the
-  dominant chord wins a collapsed span; the underlying data is unmodified
-- **Section labelling** — repeated feature vectors get the same label; labels are
+  dominant chord wins a collapsed span; the source data is unmodified
+- **Section labelling** — repeated feature vectors get the same label; labels
   assigned in order of first appearance
 - **Section detection** — golden test on synthesised audio with a known A-B-A-B
   structure
+- **Range requests** — a ranged GET returns `206` with correct `Content-Range`
+  and the right bytes
+- **Eviction** — least-recently-played goes first; the cap is respected; an
+  evicted song keeps its analysis
+- **No rescaling** — a `speed_adjusted` track keeps unscaled timestamps while
+  retaining its flag
 
-The SDK is mocked. No test requires a browser, a network, or a Premium account.
-
----
-
-## 10. Build order and the gate
-
-**Sync is the risk.** Everything else is decoration on top of it.
-
-1. **Foundation** — scopes, token endpoint, SDK wrapper, position interpolation,
-   hero chord following a real song
-2. **Gate** — does the chart track a real song convincingly, by ear? If not, stop.
-   The map and looping are worthless on a foundation that drifts.
-3. **Sections and map** — detection, labelling, engine bump, the map with jump
-4. **Looping** — range selection, wrap, guard
-5. **Chord sheet and beat context** — collapse the existing chart, add beat marks
+The `<audio>` element is mocked. No test needs a browser, a network, or Premium.
 
 ---
 
-## 11. Out of scope
+## 11. Build order
 
-- **Slowing playback down** — impossible via the SDK (§3.2)
-- **Verse/chorus naming** — the detector knows repetition, not function (§5.2)
-- **Sub-section loop precision** — loops snap to section edges; millisecond
-  dragging is not the interaction anyone wants
-- **Phase 3 items** — aggregate mood ring, recommendations
-- **Phase 4 items** — export, bass tablature
+Sync is no longer a risk, so there is no gate. The order is simply
+dependency-driven:
+
+1. **Retention and serving** — AudioStore, the audio endpoint with Range support,
+   eviction
+2. **Playback and follow-along** — `<audio>` wrapper, playhead, hero chord,
+   rate control
+3. **Sections** — detection, labelling, engine bump, removal of rescaling
+4. **Map, looping and jumping**
+5. **Chord sheet and beat context**
+
+Step 2 is the first point where the feature is genuinely usable, and worth
+stopping at to look.
 
 ---
 
-## 12. Recorded decisions
+## 12. Out of scope
+
+- **Spotify playback** — removed entirely from Phase 2 (§2)
+- **Verse/chorus naming** — the detector knows repetition, not function (§7.2)
+- **Pitch shifting / capo transposition** — a plausible future feature, not this one
+- **Phase 3** — aggregate mood ring, recommendations
+- **Phase 4** — export, bass tablature
+
+---
+
+## 13. Recorded decisions
 
 | Decision | Rationale |
 |---|---|
+| Play the analysed audio, not Spotify | Spotify's SDK cannot slow playback down, which is the point of the feature. Playing the analysed file also makes sync exact rather than calibrated, and removes the Premium and re-auth requirements. |
+| Retain audio, evict least-recently-played | Phase 1's delete-always rule was set when playback was out of scope. 2 GB holds ~500 songs; an evicted song keeps its analysis and re-downloads on demand. |
+| Stop rescaling timestamps by `time_scale` | The correction existed to match Spotify's master. Against local audio it introduces ~1.4 s of drift over three minutes on `Pink Moon`, which is cached and speed-adjusted today. |
+| Keep the `speed_adjusted` flag | A sped-up upload is pitch-shifted, so the detected key stays unreliable even though the timing correction is gone. |
 | Layout: hero chord + song map | Chosen from three mockups. The only one where looping and jumping have a natural home. |
-| Audio segmentation over chord repetition | Catches quiet-verse-to-loud-chorus where the chords do not change. Costs an engine bump and re-analysis; accepted. |
-| Manual nudge over beat-grid snapping | The offset is unmeasurable (§3.3). Snapping would be confidently wrong when it missed by a beat; a nudge is exact after four seconds of work. |
-| Offset stored per track, not per analysis | Re-analysing must not discard hand calibration. |
-| Access token exposed to the browser | Required by the SDK. Accepted for a localhost single-user tool; recorded as a posture reduction, not an oversight. |
+| Audio segmentation over chord repetition | Catches quiet-verse-to-loud-chorus where chords do not change. Costs an engine bump, accepted. |
 | 400 ms minimum hero display | 171 changes in 4 minutes is unreadable otherwise. A display concern, kept out of the data. |
 | Sections labelled A/B/C | The analysis supports "this repeats", not "this is a chorus". |
+| Rate not persisted | Practice speed is a mode, not a property of the song. |
