@@ -13,7 +13,7 @@ from kord.analysis.recognizer import ChordRecognizer
 from kord.analysis.sections import detect_sections
 from kord.analysis.timbre import heaviness as measure_heaviness
 from kord.audio.decode import SAMPLE_RATE, decode_to_wav, trim_leading_silence
-from kord.audio.validate import select_candidate
+from kord.audio.validate import rank_candidates
 from kord.models import Analysis
 from kord.theory.qualities import NO_CHORD
 
@@ -21,7 +21,7 @@ log = logging.getLogger("kord.pipeline")
 
 
 class NoAudioFound(Exception):
-    """No candidate passed duration validation."""
+    """No candidate passed duration validation, or none could be downloaded."""
 
 
 class AnalysisPipeline:
@@ -45,12 +45,30 @@ class AnalysisPipeline:
         self.beat_tracker = beat_tracker or BeatTracker()
         self.audio_store = audio_store
 
+    def _download_best(self, ranked, work_dir: Path, artist: str, title: str):
+        """First candidate that actually downloads, with its tier and ratio.
+
+        A download can fail for reasons no amount of duration matching predicts
+        — DRM on official uploads, region blocks, deleted videos — so a failure
+        here means "try the next one", not "this song has no audio".
+        """
+        for candidate, tier, ratio in ranked:
+            try:
+                return candidate, tier, ratio, Path(
+                    self.source.download(candidate, work_dir))
+            except Exception:
+                log.warning(
+                    "could not download %s, trying the next candidate",
+                    candidate.url, exc_info=True)
+        raise NoAudioFound(
+            f"every candidate for {artist} - {title} could not be downloaded")
+
     def run(
         self, spotify_id: str, artist: str, title: str, spotify_duration_ms: int
     ) -> Analysis:
         candidates = self.source.search(artist, title)
-        chosen, tier, ratio = select_candidate(spotify_duration_ms, candidates)
-        if chosen is None:
+        ranked = rank_candidates(spotify_duration_ms, candidates)
+        if not ranked:
             raise NoAudioFound(f"no candidate matched duration for {artist} - {title}")
 
         work_dir = self.scratch_dir / spotify_id
@@ -59,7 +77,8 @@ class AnalysisPipeline:
             # return an existing path (local files) never make one, and relying
             # on the source to do it would be a contract waiting to break.
             work_dir.mkdir(parents=True, exist_ok=True)
-            downloaded = Path(self.source.download(chosen, work_dir))
+            chosen, tier, ratio, downloaded = self._download_best(
+                ranked, work_dir, artist, title)
             wav_path = decode_to_wav(downloaded, work_dir / "decoded.wav")
             y, sr = librosa.load(wav_path, sr=SAMPLE_RATE, mono=True)
             y, offset_ms = trim_leading_silence(y, sr)

@@ -201,3 +201,40 @@ def test_retention_failure_does_not_fail_the_analysis(tmp_path):
 def test_no_store_means_no_retention_and_still_works(tmp_path):
     analysis = build(tmp_path, FakeSource(tmp_path, 4000)).run("t1", "A", "T", 4000)
     assert len(analysis.chord_segments) > 0
+
+
+def test_falls_back_to_the_next_candidate_when_a_download_fails(tmp_path):
+    """The closest duration match is often the official upload, which is DRM
+    protected and 403s. Analysis must move on to the next candidate rather
+    than failing the whole song."""
+    class FlakySource(FakeSource):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.attempts = []
+
+        def download(self, candidate, dest_dir):
+            self.attempts.append(candidate.url)
+            if candidate.url.endswith("/drm"):
+                raise RuntimeError("HTTP Error 403: Forbidden")
+            return super().download(candidate, dest_dir)
+
+    source = FlakySource(tmp_path, 4000, candidates=[
+        AudioCandidate(None, "https://example.invalid/drm", 4000, "official"),
+        AudioCandidate(None, "https://example.invalid/ok", 4000, "reupload"),
+    ])
+    analysis = build(tmp_path, source).run("t1", "Artist", "Title", 4000)
+    assert source.attempts == ["https://example.invalid/drm", "https://example.invalid/ok"]
+    assert analysis.source_url == "https://example.invalid/ok"
+
+
+def test_raises_when_every_candidate_fails_to_download(tmp_path):
+    class DeadSource(FakeSource):
+        def download(self, candidate, dest_dir):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+
+    source = DeadSource(tmp_path, 4000, candidates=[
+        AudioCandidate(None, "https://example.invalid/a", 4000, "a"),
+        AudioCandidate(None, "https://example.invalid/b", 4000, "b"),
+    ])
+    with pytest.raises(NoAudioFound, match="could not be downloaded"):
+        build(tmp_path, source).run("t1", "Artist", "Title", 4000)

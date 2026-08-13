@@ -22,17 +22,30 @@ def classify_ratio(spotify_ms: int, candidate_ms: int) -> tuple[str, float]:
     return ("reject", ratio)
 
 
+def rank_candidates(
+    spotify_ms: int, candidates: list[AudioCandidate]
+) -> list[tuple[AudioCandidate, str, float]]:
+    """Every acceptable candidate, best tier first, rejects dropped.
+
+    The duration winner is frequently the official upload, which is DRM
+    protected and cannot be downloaded at all. Keeping the runners-up lets the
+    pipeline try the next one instead of failing the song outright. Order
+    within a tier is the source's own, which is already relevance-ranked.
+    """
+    clean: list[tuple[AudioCandidate, str, float]] = []
+    speed_adjusted: list[tuple[AudioCandidate, str, float]] = []
+    for candidate in candidates:
+        tier, ratio = classify_ratio(spotify_ms, candidate.duration_ms)
+        if tier == "clean":
+            clean.append((candidate, tier, ratio))
+        elif tier == "speed_adjusted":
+            speed_adjusted.append((candidate, tier, ratio))
+    return clean + speed_adjusted
+
+
 def select_candidate(
     spotify_ms: int, candidates: list[AudioCandidate]
 ) -> tuple[AudioCandidate | None, str, float]:
     """Prefer a clean match; fall back to a speed-adjusted one; else reject."""
-    fallback: tuple[AudioCandidate, float] | None = None
-    for candidate in candidates:
-        tier, ratio = classify_ratio(spotify_ms, candidate.duration_ms)
-        if tier == "clean":
-            return (candidate, "clean", ratio)
-        if tier == "speed_adjusted" and fallback is None:
-            fallback = (candidate, ratio)
-    if fallback is not None:
-        return (fallback[0], "speed_adjusted", fallback[1])
-    return (None, "reject", 0.0)
+    ranked = rank_candidates(spotify_ms, candidates)
+    return ranked[0] if ranked else (None, "reject", 0.0)

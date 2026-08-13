@@ -1,4 +1,4 @@
-from kord.audio.validate import classify_ratio, select_candidate
+from kord.audio.validate import classify_ratio, rank_candidates, select_candidate
 from kord.models import AudioCandidate
 
 
@@ -54,3 +54,25 @@ def test_first_speed_adjusted_candidate_wins_over_later_ones():
         200_000, [cand(197_000, "first"), cand(198_000, "second")])
     assert chosen.url == "first"
     assert tier == "speed_adjusted"
+
+
+def test_rank_orders_clean_before_speed_adjusted_and_drops_rejects():
+    ranked = rank_candidates(200_000, [
+        cand(300_000, "way too long"),
+        cand(197_000, "speedy"),
+        cand(200_000, "clean"),
+    ])
+    assert [c.url for c, _, _ in ranked] == ["clean", "speedy"]
+    assert [tier for _, tier, _ in ranked] == ["clean", "speed_adjusted"]
+
+
+def test_rank_keeps_every_clean_candidate_as_a_fallback():
+    """The best duration match can still be undownloadable (DRM), so the
+    pipeline needs the runners-up, not just the winner."""
+    ranked = rank_candidates(200_000, [cand(200_000, "a"), cand(199_900, "b")])
+    assert [c.url for c, _, _ in ranked] == ["a", "b"]
+
+
+def test_select_candidate_still_returns_the_top_ranked():
+    ranked = rank_candidates(200_000, [cand(197_000, "speedy"), cand(200_000, "clean")])
+    assert select_candidate(200_000, [cand(197_000, "speedy"), cand(200_000, "clean")]) == ranked[0]
