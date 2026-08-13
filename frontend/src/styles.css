@@ -407,3 +407,43 @@ body {
   .mood-field .blob,
   .state.working .pulse { animation: none; }
 }
+
+/* ── Play-along ───────────────────────────────────────────── */
+
+.playalong { padding: var(--gutter); display: grid; gap: 1rem; justify-items: start; }
+
+.hero .chord {
+  display: block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(4rem, 16vw, 10rem);
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  color: hsl(var(--hue) 70% 62%);
+  text-shadow: 0 0 60px hsl(var(--hue) 70% 45% / 0.45);
+}
+
+.hero .roman { font: 500 1rem var(--mono); color: var(--text-dim); }
+
+.upnext { display: flex; align-items: baseline; gap: 0.6rem; }
+.upnext .lbl { font: 500 0.7rem var(--mono); letter-spacing: 0.14em;
+               text-transform: uppercase; color: var(--text-dim); }
+.upnext .name { font-family: var(--display); font-weight: 600; font-size: 1.6rem;
+                color: hsl(var(--hue) 60% 65%); }
+.upnext .in { font: 400 0.8rem var(--mono); color: var(--text-dim); }
+
+.beatstrip { position: relative; height: 22px; width: min(420px, 100%);
+             border-top: 1px solid var(--line); }
+.beatstrip .beat { position: absolute; top: 0; width: 1px; height: 8px;
+                   background: var(--text-dim); opacity: 0.5; }
+.beatstrip .playhead { position: absolute; left: 50%; top: 0; width: 2px;
+                       height: 14px; background: var(--brass); }
+
+.transport { display: flex; align-items: center; gap: 1rem; }
+.playbtn { background: var(--brass); color: #0b0d10; border: 0; border-radius: 999px;
+           padding: 0.5rem 1.5rem; font: 700 0.95rem var(--body); cursor: pointer; }
+.rates { display: flex; gap: 0.25rem; }
+.rates button { background: transparent; border: 1px solid var(--line);
+                color: var(--text-dim); border-radius: 999px; padding: 0.35rem 0.7rem;
+                font: 500 0.8rem var(--mono); cursor: pointer; }
+.rates button.on { border-color: var(--brass); color: var(--brass); }
