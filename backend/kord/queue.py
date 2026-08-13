@@ -16,8 +16,18 @@ def _record_retained_audio(conn, pipeline, spotify_id: str) -> None:
     on purpose — so discovery happens here instead: `AudioStore.path_for` globs
     for whatever the pipeline may have retained, rather than the pipeline
     reporting it directly. Eviction runs right after, so the store can briefly
-    overshoot its cap but never stays over it. Never raises: a bookkeeping or
-    eviction failure must not turn a successful analysis into a failed job.
+    overshoot its cap but never stays over it.
+
+    `protect=spotify_id` is load-bearing, not defensive: the track just
+    retained has no `last_played_at` yet, which the LRU ordering treats as
+    "most evictable" — without the exclusion, eviction would delete the file
+    that was just written, every time the store is already at cap. That
+    would make the failure permanent: once `audio_dir` reaches its cap, every
+    newly analysed song gets retained and immediately deleted, and playback
+    404s forever after.
+
+    Never raises: a bookkeeping or eviction failure must not turn a
+    successful analysis into a failed job.
     """
     store = getattr(pipeline, "audio_store", None)
     if store is None:
@@ -27,7 +37,7 @@ def _record_retained_audio(conn, pipeline, spotify_id: str) -> None:
         if path is None:
             return
         db.set_audio_ext(conn, spotify_id, path.suffix)
-        store.evict_to_fit(conn, incoming_bytes=0)
+        store.evict_to_fit(conn, incoming_bytes=0, protect=spotify_id)
     except Exception:
         log.warning("could not record/evict retained audio for %s", spotify_id, exc_info=True)
 

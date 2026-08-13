@@ -51,8 +51,15 @@ class AudioStore:
     def total_bytes(self) -> int:
         return sum(p.stat().st_size for p in self.root.iterdir() if p.is_file())
 
-    def evict_to_fit(self, conn, incoming_bytes: int) -> list[str]:
+    def evict_to_fit(self, conn, incoming_bytes: int, protect: str | None = None) -> list[str]:
         """Delete least-recently-played audio until `incoming_bytes` fits.
+
+        `protect`, if given, is never evicted. This exists for a track that
+        was *just* retained: it has no `last_played_at` yet, so the ordering
+        below — which treats never-played as the most evictable — would pick
+        it first and delete the very file that was just written. Excluding
+        it here at the call site, rather than stamping `last_played_at` at
+        retention time, keeps that column meaning only "played".
 
         Returns the ids evicted. Analyses are untouched.
         """
@@ -61,6 +68,8 @@ class AudioStore:
             return evicted
 
         for row in db.audio_tracks_by_least_recently_played(conn):
+            if row["spotify_id"] == protect:
+                continue
             path = self.path_for(row["spotify_id"])
             if path is not None:
                 path.unlink()

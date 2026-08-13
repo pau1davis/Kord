@@ -86,8 +86,8 @@ def test_empty_candidate_list_raises_no_audio_found(tmp_path):
         build(tmp_path, source).run("t1", "Artist", "Title", 4000)
 
 
-def test_speed_adjusted_candidate_sets_flag_and_scales_timestamps(tmp_path):
-    # candidate is 1.5% shorter than Spotify: accepted, corrected, flagged
+def test_speed_adjusted_candidate_sets_flag_and_records_time_scale(tmp_path):
+    # candidate is 1.5% shorter than Spotify: accepted, flagged, time_scale recorded
     analysis = build(tmp_path, FakeSource(tmp_path, 3940)).run("t1", "Artist", "Title", 4000)
     assert "speed_adjusted" in analysis.flags
     assert analysis.time_scale != 1.0
