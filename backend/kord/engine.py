@@ -14,7 +14,7 @@ from kord.config import Settings
 
 log = logging.getLogger("kord.engine")
 
-BTC_VERSION = "btc-3"      # btc-3 adds sections and drops timestamp rescaling
+BTC_VERSION = "btc-4"      # btc-4 corrects tempo octave errors and stores m4a
 CHROMA_VERSION = "chroma-1"
 
 

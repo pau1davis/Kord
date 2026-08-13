@@ -117,3 +117,11 @@ def test_ambiguous_margin_is_left_alone():
     _, out_tempo = correct_double_time(
         frames, 184.0, env_for(frames, strengths))
     assert out_tempo == pytest.approx(184.0)
+
+
+def test_tempo_and_grid_never_disagree():
+    """The two are one fact. A halved tempo with an un-decimated grid would
+    draw twice as many beats as it claims."""
+    grid = BeatTracker().track(click_track(120.0, 10.0), SR)
+    gaps = np.diff(grid.times_s)
+    assert abs(60.0 / float(np.median(gaps)) - grid.tempo) < 6.0

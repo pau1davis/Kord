@@ -61,8 +61,12 @@ class BeatTracker:
         if not np.any(np.abs(y) > 1e-6):
             return BeatGrid(times_s=[], tempo=0.0)
         tempo, frames = librosa.beat.beat_track(y=y, sr=sr, units="frames")
+        tempo = float(np.atleast_1d(tempo)[0])
+
+        # librosa's default prior mis-locks an octave high on slower material:
+        # Mercy Mercy Me came back at 184.6 against a true ~93.
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        frames, tempo = correct_double_time(frames, tempo, onset_env)
+
         times = librosa.frames_to_time(frames, sr=sr)
-        return BeatGrid(
-            times_s=[float(t) for t in times],
-            tempo=float(np.atleast_1d(tempo)[0]),
-        )
+        return BeatGrid(times_s=[float(t) for t in times], tempo=tempo)
