@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
@@ -9,11 +10,14 @@ import numpy as np
 from kord.analysis.beats import BeatTracker
 from kord.analysis.key import KeyDetector
 from kord.analysis.recognizer import ChordRecognizer
+from kord.analysis.sections import detect_sections
 from kord.analysis.timbre import heaviness as measure_heaviness
 from kord.audio.decode import SAMPLE_RATE, decode_to_wav, trim_leading_silence
 from kord.audio.validate import select_candidate
-from kord.models import Analysis, BeatGrid, ChordSegment
+from kord.models import Analysis
 from kord.theory.qualities import NO_CHORD
+
+log = logging.getLogger("kord.pipeline")
 
 
 class NoAudioFound(Exception):
@@ -31,6 +35,7 @@ class AnalysisPipeline:
         engine_version: str,
         key_detector: KeyDetector | None = None,
         beat_tracker: BeatTracker | None = None,
+        audio_store=None,
     ) -> None:
         self.source = source
         self.recognizer = recognizer
@@ -38,6 +43,7 @@ class AnalysisPipeline:
         self.engine_version = engine_version
         self.key_detector = key_detector or KeyDetector()
         self.beat_tracker = beat_tracker or BeatTracker()
+        self.audio_store = audio_store
 
     def run(
         self, spotify_id: str, artist: str, title: str, spotify_duration_ms: int
@@ -63,17 +69,21 @@ class AnalysisPipeline:
             key = self.key_detector.detect(y, sr, segments)
             grid = self.beat_tracker.track(y, sr)
 
+            # Timestamps are NOT rescaled. The correction existed to line the
+            # chart up with Spotify's master; Kord now plays this exact file, so
+            # applying it would introduce drift instead of removing it. The
+            # speed_adjusted flag stays: a sped-up upload is pitch-shifted, so
+            # the detected key remains unreliable.
             time_scale = ratio if tier == "speed_adjusted" else 1.0
-            if time_scale != 1.0:
-                segments = [
-                    ChordSegment(s.start_s * time_scale, s.end_s * time_scale,
-                                 s.root, s.quality, s.confidence)
-                    for s in segments
-                ]
-                grid = BeatGrid(
-                    times_s=[t * time_scale for t in grid.times_s],
-                    tempo=grid.tempo / time_scale if time_scale else grid.tempo,
-                )
+
+            sections = detect_sections(y, sr)
+
+            if self.audio_store is not None:
+                try:
+                    self.audio_store.retain(spotify_id, downloaded)
+                except Exception:
+                    # Retention is a convenience; analysis must not depend on it.
+                    log.warning("could not retain audio for %s", spotify_id, exc_info=True)
 
             confidences = [s.confidence for s in segments if s.quality != NO_CHORD]
             return Analysis(
@@ -90,6 +100,7 @@ class AnalysisPipeline:
                 flags=["speed_adjusted"] if tier == "speed_adjusted" else [],
                 chord_confidence_mean=float(np.mean(confidences)) if confidences else 0.0,
                 heaviness=track_heaviness,
+                sections=sections,
             )
         finally:
             # Spec: audio is deleted unconditionally, including on failure paths.

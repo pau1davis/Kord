@@ -54,6 +54,7 @@ def worker_loop(conn, pipeline, poll_seconds: float = 2.0) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     from kord.analysis.pipeline import AnalysisPipeline
+    from kord.audio.store import AudioStore
     from kord.audio.youtube import YouTubeAudioSource
     from kord.config import Settings
     from kord.engine import build_recognizer
@@ -67,6 +68,7 @@ def main() -> None:
         recognizer=recognizer,
         scratch_dir=settings.scratch_dir,
         engine_version=engine_version,
+        audio_store=AudioStore(settings.audio_dir, settings.audio_cap_bytes),
     )
     worker_loop(conn, pipeline)
 

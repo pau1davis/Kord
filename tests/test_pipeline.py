@@ -99,15 +99,6 @@ def test_clean_candidate_carries_no_flag(tmp_path):
     assert analysis.time_scale == pytest.approx(1.0)
 
 
-def test_time_scale_stretches_segment_boundaries(tmp_path):
-    clean = build(tmp_path, FakeSource(tmp_path, 4000)).run("t1", "A", "T", 4000)
-    scaled = build(tmp_path, FakeSource(tmp_path, 3940)).run("t2", "A", "T", 4000)
-    assert scaled.time_scale > 1.0
-    # Same audio, so the final boundary should differ by exactly the scale factor
-    assert scaled.chord_segments[-1].end_s == pytest.approx(
-        clean.chord_segments[-1].end_s * scaled.time_scale, rel=1e-6)
-
-
 def test_works_with_a_source_that_does_not_create_the_work_dir(tmp_path):
     """LocalFileAudioSource returns an existing path and never mkdirs.
 
@@ -152,3 +143,61 @@ def test_records_the_source_url_and_duration(tmp_path):
     analysis = build(tmp_path, FakeSource(tmp_path, 4000)).run("t1", "Artist", "Title", 4000)
     assert analysis.source_url == "https://example.invalid/v"
     assert analysis.source_duration_ms == 4000
+
+
+def test_timestamps_are_never_rescaled(tmp_path):
+    """The correction matched Spotify's master. We now play the local file.
+
+    Pink Moon is cached with time_scale=0.992; rescaling against local audio
+    drifts about 1.4s over three minutes.
+    """
+    clean = build(tmp_path, FakeSource(tmp_path, 4000)).run("t1", "A", "T", 4000)
+    speedy = build(tmp_path, FakeSource(tmp_path, 3940)).run("t2", "A", "T", 4000)
+
+    assert "speed_adjusted" in speedy.flags, "detection still happens"
+    assert speedy.chord_segments[-1].end_s == pytest.approx(
+        clean.chord_segments[-1].end_s, rel=1e-6), "but timing is untouched"
+    assert speedy.beat_grid.tempo == pytest.approx(clean.beat_grid.tempo, rel=1e-6)
+
+
+def test_analysis_includes_sections(tmp_path):
+    analysis = build(tmp_path, FakeSource(tmp_path, 4000)).run("t1", "A", "T", 4000)
+    assert len(analysis.sections) >= 1
+    assert analysis.sections[0].label == "A"
+    assert analysis.sections[0].start_s == 0.0
+
+
+def test_audio_is_retained_when_a_store_is_given(tmp_path):
+    from kord.audio.store import AudioStore
+    store = AudioStore(tmp_path / "store", cap_bytes=10 ** 9)
+    pipeline = AnalysisPipeline(
+        source=FakeSource(tmp_path, 4000), recognizer=ChromaTemplateRecognizer(),
+        scratch_dir=tmp_path / "scratch", engine_version="btc-3", audio_store=store)
+    pipeline.run("t1", "A", "T", 4000)
+    assert store.path_for("t1") is not None
+
+
+def test_audio_is_still_deleted_from_scratch_after_retention(tmp_path):
+    from kord.audio.store import AudioStore
+    store = AudioStore(tmp_path / "store", cap_bytes=10 ** 9)
+    source = FakeSource(tmp_path, 4000)
+    AnalysisPipeline(source, ChromaTemplateRecognizer(), tmp_path / "scratch",
+                     "btc-3", audio_store=store).run("t1", "A", "T", 4000)
+    assert not (tmp_path / "scratch" / "t1").exists()
+
+
+def test_retention_failure_does_not_fail_the_analysis(tmp_path):
+    """Analysis must never depend on retention succeeding."""
+    class BrokenStore:
+        def retain(self, spotify_id, source):
+            raise OSError("disk full")
+
+    analysis = AnalysisPipeline(
+        FakeSource(tmp_path, 4000), ChromaTemplateRecognizer(),
+        tmp_path / "scratch", "btc-3", audio_store=BrokenStore()).run("t1", "A", "T", 4000)
+    assert len(analysis.chord_segments) > 0
+
+
+def test_no_store_means_no_retention_and_still_works(tmp_path):
+    analysis = build(tmp_path, FakeSource(tmp_path, 4000)).run("t1", "A", "T", 4000)
+    assert len(analysis.chord_segments) > 0
