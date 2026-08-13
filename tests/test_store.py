@@ -1,0 +1,92 @@
+import pytest
+
+from kord import db
+from kord.audio.store import AudioStore
+
+
+@pytest.fixture
+def conn():
+    c = db.connect(":memory:")
+    db.init_schema(c)
+    return c
+
+
+def make_source(tmp_path, name="a.webm", size=1024):
+    p = tmp_path / name
+    p.write_bytes(b"x" * size)
+    return p
+
+
+def test_retain_copies_and_locates(tmp_path, conn):
+    store = AudioStore(tmp_path / "audio", cap_bytes=10_000)
+    kept = store.retain("t1", make_source(tmp_path))
+    assert kept.exists()
+    assert store.path_for("t1") == kept
+
+
+def test_path_for_returns_none_when_absent(tmp_path):
+    assert AudioStore(tmp_path / "audio", cap_bytes=10_000).path_for("nope") is None
+
+
+def test_retain_preserves_the_extension(tmp_path, conn):
+    store = AudioStore(tmp_path / "audio", cap_bytes=10_000)
+    kept = store.retain("t1", make_source(tmp_path, "a.m4a"))
+    assert kept.suffix == ".m4a"
+
+
+def test_retain_replaces_an_existing_file(tmp_path, conn):
+    store = AudioStore(tmp_path / "audio", cap_bytes=10_000)
+    store.retain("t1", make_source(tmp_path, "a.webm", 100))
+    store.retain("t1", make_source(tmp_path, "b.webm", 500))
+    assert store.path_for("t1").stat().st_size == 500
+    assert store.total_bytes() == 500
+
+
+def test_total_bytes_sums_the_store(tmp_path, conn):
+    store = AudioStore(tmp_path / "audio", cap_bytes=10_000)
+    store.retain("t1", make_source(tmp_path, "a.webm", 300))
+    store.retain("t2", make_source(tmp_path, "b.webm", 200))
+    assert store.total_bytes() == 500
+
+
+def test_eviction_removes_least_recently_played_first(tmp_path, conn):
+    store = AudioStore(tmp_path / "audio", cap_bytes=1000)
+    for tid, size in (("old", 400), ("mid", 400)):
+        db.upsert_track(conn, tid, "A", tid, "Al", 1000)
+        store.retain(tid, make_source(tmp_path, f"{tid}.webm", size))
+        db.set_audio_ext(conn, tid, ".webm")
+    db.touch_played(conn, "old")
+    db.touch_played(conn, "mid")      # mid is newer, so old goes first
+
+    evicted = store.evict_to_fit(conn, incoming_bytes=400)
+    assert evicted == ["old"]
+    assert store.path_for("old") is None
+    assert store.path_for("mid") is not None
+
+
+def test_eviction_stops_once_it_fits(tmp_path, conn):
+    store = AudioStore(tmp_path / "audio", cap_bytes=10_000)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    store.retain("t1", make_source(tmp_path, "a.webm", 100))
+    db.set_audio_ext(conn, "t1", ".webm")
+    assert store.evict_to_fit(conn, incoming_bytes=100) == []
+    assert store.path_for("t1") is not None
+
+
+def test_eviction_keeps_the_analysis(tmp_path, conn):
+    """An evicted song is not broken - only its audio is gone."""
+    from kord.models import Analysis, BeatGrid, ChordSegment, KeyEstimate
+
+    store = AudioStore(tmp_path / "audio", cap_bytes=100)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    db.save_analysis(conn, Analysis(
+        spotify_id="t1", engine_version="btc-3", key=KeyEstimate(0, "major", 0.8, True),
+        tempo=120.0, beat_grid=BeatGrid([0.0], 120.0),
+        chord_segments=[ChordSegment(0.0, 1.0, 0, "major", 0.9)],
+        source_url="u", source_duration_ms=1000, time_scale=1.0, sync_offset_ms=0))
+    store.retain("t1", make_source(tmp_path, "a.webm", 100))
+    db.set_audio_ext(conn, "t1", ".webm")
+
+    store.evict_to_fit(conn, incoming_bytes=100)
+    assert store.path_for("t1") is None
+    assert db.get_analysis(conn, "t1", "btc-3") is not None

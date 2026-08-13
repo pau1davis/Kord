@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from kord.models import Analysis
@@ -14,6 +15,8 @@ CREATE TABLE IF NOT EXISTS track (
     title        TEXT NOT NULL,
     album        TEXT,
     duration_ms  INTEGER NOT NULL,
+    audio_ext    TEXT,
+    last_played_at TEXT,
     first_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS analysis (
@@ -45,6 +48,7 @@ CREATE TABLE IF NOT EXISTS auth (
 
 # Columns added after the first release; ALTER is idempotent-checked below.
 _AUTH_COLUMNS = {"access_token": "TEXT", "expires_at": "REAL"}
+_TRACK_COLUMNS = {"audio_ext": "TEXT", "last_played_at": "TEXT"}
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -58,7 +62,15 @@ def connect(path: str | Path) -> sqlite3.Connection:
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     _migrate_auth(conn)
+    _migrate_track(conn)
     conn.commit()
+
+
+def _migrate_track(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(track)")}
+    for column, kind in _TRACK_COLUMNS.items():
+        if column not in columns:
+            conn.execute(f"ALTER TABLE track ADD COLUMN {column} {kind}")
 
 
 def _migrate_auth(conn: sqlite3.Connection) -> None:
@@ -210,3 +222,35 @@ def finish_job(conn, job_id: int, state: str, error: str | None = None) -> None:
         (state, error, job_id),
     )
     conn.commit()
+
+
+def set_audio_ext(conn, spotify_id: str, ext: str | None) -> None:
+    conn.execute("UPDATE track SET audio_ext=? WHERE spotify_id=?", (ext, spotify_id))
+    conn.commit()
+
+
+def touch_played(conn, spotify_id: str) -> None:
+    """Record a play, so eviction can order by least recently played.
+
+    Timestamps are computed in Python, not with SQLite's `datetime('now')`:
+    that function only has second resolution (and `strftime(..., '%f')` tops
+    out around milliseconds), so two plays in quick succession — as in the
+    eviction test, and plausibly a real skip-back-and-replay in the UI — can
+    tie and fall back to sorting by spotify_id, silently breaking recency
+    order. `datetime.now()` gives microsecond resolution, which does not.
+    """
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+    conn.execute(
+        "UPDATE track SET last_played_at=? WHERE spotify_id=?",
+        (now, spotify_id),
+    )
+    conn.commit()
+
+
+def audio_tracks_by_least_recently_played(conn) -> list[sqlite3.Row]:
+    """Tracks holding audio, oldest play first. Never-played sorts first."""
+    return list(conn.execute(
+        """SELECT spotify_id, audio_ext FROM track
+           WHERE audio_ext IS NOT NULL
+           ORDER BY last_played_at IS NOT NULL, last_played_at ASC, spotify_id"""
+    ))

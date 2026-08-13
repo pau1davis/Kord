@@ -14,6 +14,8 @@ class Settings:
     engine_version: str
     model_dir: Path
     ui_url: str
+    audio_dir: Path
+    audio_cap_bytes: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -25,6 +27,11 @@ class Settings:
         # enters git history.
         models = root / "models"
         models.mkdir(exist_ok=True)
+        # Retained playback audio. Phase 1 deleted audio because playback was out
+        # of scope; Phase 2 plays what it analysed, so it is kept and capped.
+        audio = root / "audio"
+        audio.mkdir(exist_ok=True)
+        cap_gb = float(os.environ.get("KORD_AUDIO_CAP_GB", "2"))
         return cls(
             spotify_client_id=os.environ.get("SPOTIFY_CLIENT_ID", ""),
             # Spotify rejects `localhost` in a redirect URI as insecure: hostname
@@ -39,4 +46,6 @@ class Settings:
             # Where to send the browser after authorising. The UI runs on its own
             # port, so returning to the API's root would land on a JSON 404.
             ui_url=os.environ.get("KORD_UI_URL", "http://127.0.0.1:5173"),
+            audio_dir=audio,
+            audio_cap_bytes=int(cap_gb * 1024 ** 3),
         )
