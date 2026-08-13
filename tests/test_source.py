@@ -56,3 +56,13 @@ def test_youtube_source_is_never_imported_by_other_modules():
         if "yt_dlp" in path.read_text(encoding="utf-8", errors="ignore")
     )
     assert hits == ["backend/kord/audio/youtube.py"], f"yt-dlp leaked into {hits}"
+
+
+def test_download_format_prefers_m4a_with_a_fallback():
+    """WebM/Opus from YouTube carries no seek index and no stream duration,
+    which breaks seeking and Safari. m4a has both. The fallback keeps songs
+    that offer no m4a working rather than failing them."""
+    from kord.audio.youtube import DOWNLOAD_FORMAT
+
+    assert DOWNLOAD_FORMAT.startswith("bestaudio[ext=m4a]")
+    assert "/bestaudio" in DOWNLOAD_FORMAT

@@ -12,6 +12,11 @@ import yt_dlp
 
 from kord.models import AudioCandidate
 
+# m4a first: YouTube's WebM/Opus carries no seek index and no stream duration,
+# which breaks seeking, is refused outright by Safari, and is a poor input to
+# stem separation. The fallback keeps songs offering no m4a working.
+DOWNLOAD_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
+
 
 class YouTubeAudioSource:
     def __init__(self, max_results: int = 5) -> None:
@@ -39,7 +44,7 @@ class YouTubeAudioSource:
         dest_dir.mkdir(parents=True, exist_ok=True)
         template = str(dest_dir / "%(id)s.%(ext)s")
         options = {
-            "quiet": True, "no_warnings": True, "format": "bestaudio/best",
+            "quiet": True, "no_warnings": True, "format": DOWNLOAD_FORMAT,
             "outtmpl": template, "noplaylist": True,
         }
         with yt_dlp.YoutubeDL(options) as ydl:
