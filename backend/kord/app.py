@@ -122,10 +122,15 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
     app.state.access_token = None if session is None or session["expired"] else session["access_token"]
 
     async def require_token() -> str:
-        if app.state.access_token:
+        # app.state.access_token is only a cache for /api/auth/status. Expiry
+        # lives in load_session, so ask it every time: a token cached while it
+        # was valid is otherwise served long after it dies, and every Spotify
+        # call 401s until the process happens to restart.
+        stored = db.load_session(conn)
+        if stored and not stored["expired"]:
+            app.state.access_token = stored["access_token"]
             return app.state.access_token
 
-        stored = db.load_session(conn)
         if stored and stored["refresh_token"]:
             try:
                 tokens = await spotify.refresh(stored["refresh_token"])
@@ -148,7 +153,13 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
     @app.get("/api/auth/status")
     async def auth_status():
-        return {"authenticated": bool(app.state.access_token)}
+        # "Can we actually call Spotify?", not "is a token cached?". A cached
+        # token that has since expired would otherwise report connected while
+        # every search 401s, and a refreshable session would report signed out.
+        session = db.load_session(conn)
+        usable = bool(
+            session and (not session["expired"] or session["refresh_token"]))
+        return {"authenticated": usable}
 
     @app.get("/api/auth/login")
     async def login():

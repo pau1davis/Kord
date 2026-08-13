@@ -131,10 +131,51 @@ the download format to m4a.
   under 1.2 s will render as near-invisible slivers in the song map, and one
   85.7 s block covers a third of the song. Usable for navigation, but not the
   verse/chorus map the UI implies.
-- **`/api/auth/status` reports `false` when only the access token has
-  expired**, even though a stored refresh token would succeed — the refresh
-  happens lazily inside `require_token()`. The UI can therefore show a
-  "connect your account" state for a session that is actually fine. Phase 1
-  behaviour, not introduced here.
+- **Fixed: the session died after an hour of uptime.** Recorded here
+  originally as "`/api/auth/status` reports `false` when the access token has
+  expired", which had it backwards. The real failure is worse and is described
+  in §8.
 - The chart ends at 233.5 s against a 237.3 s track; the tail is trimmed
   silence/outro.
+
+## 8. Fixed: every search 401d after an hour of uptime
+
+Found by using the app rather than testing it: the UI showed "Connect your
+Spotify account, then search again." while `/api/auth/status` insisted the
+account *was* connected.
+
+The two signals disagreed, which located it:
+
+```
+GET /api/auth/status  ->  {"authenticated": true}
+GET /api/search?q=..  ->  401 {"detail":"Missing/invalid/expired access token",
+                               "spotify_status":401}
+```
+
+The 401 came from Spotify, not from Kord — so Kord was confidently sending a
+token Spotify had already expired. `require_token()` opened with:
+
+```python
+if app.state.access_token:
+    return app.state.access_token
+```
+
+`db.load_session` computes expiry correctly and is the single source of truth,
+but the in-memory cache bypassed it entirely. The cache is populated at startup
+while the token is valid, so the refresh branch underneath was unreachable for
+as long as the process lived. Once the hour was up, every Spotify call failed
+until the server happened to restart — and a restart re-read the session,
+found it expired and refreshed cleanly, which is exactly why this never showed
+up during the earlier verification runs.
+
+**Fixed** by having `require_token()` consult `load_session()` on every call
+and treat `app.state.access_token` as nothing more than a cache.
+`/api/auth/status` now answers "can we actually call Spotify?" — true when the
+token is live *or* a refresh token exists, false otherwise — instead of "is a
+token cached?", which is what let the UI claim connected while stranded.
+
+Verified against the running server, with no restart: forcing `expires_at`
+into the past mid-flight, the next search refreshed the session silently and
+returned results. Three tests cover it, and the `client` fixture now stores a
+real session rather than assigning a bare token, since expiry is read from the
+session on every call.

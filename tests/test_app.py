@@ -32,8 +32,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
     conn = db.connect(":memory:")
     db.init_schema(conn)
+    # A real signed-in session, not just a cached token: expiry is read from
+    # the stored session on every call, so there has to be one.
+    db.save_session(conn, "tok", "rt", 3600)
     app = create_app(settings_for(tmp_path), FakeSpotify(), conn)
-    app.state.access_token = "tok"       # pretend we are logged in
     return TestClient(app), conn
 
 
@@ -326,3 +328,62 @@ def test_track_payload_includes_the_beat_grid(client):
     c, conn = client
     save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
     assert c.get("/api/track/t1").json()["beats"] == [0.0, 0.65]
+
+
+class RefreshingSpotify(FakeSpotify):
+    """Records which access token each call actually used."""
+
+    def __init__(self):
+        self.refreshed = 0
+        self.tokens_seen = []
+
+    async def refresh(self, refresh_token):
+        self.refreshed += 1
+        return {"access_token": "fresh", "expires_in": 3600}
+
+    async def search_tracks(self, query, token, limit=20):
+        self.tokens_seen.append(token)
+        return await super().search_tracks(query, token, limit)
+
+
+def test_expired_cached_token_is_refreshed_rather_than_reused(tmp_path, monkeypatch):
+    """The in-memory token outlives its expiry.
+
+    It is cached at startup while still valid, so every later call short
+    circuits on it and Spotify 401s until the process restarts.
+    """
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "stale", "rt", -10)
+    spotify = RefreshingSpotify()
+    app = create_app(settings_for(tmp_path), spotify, conn)
+    app.state.access_token = "stale"  # cached back when it was still valid
+    client = TestClient(app)
+
+    assert client.get("/api/search?q=creep").status_code == 200
+    assert spotify.refreshed == 1
+    assert spotify.tokens_seen == ["fresh"]
+
+
+def _session_client(tmp_path, monkeypatch, access, refresh, expires_in):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, access, refresh, expires_in)
+    app = create_app(settings_for(tmp_path), FakeSpotify(), conn)
+    app.state.access_token = access  # cached back when it was still valid
+    return TestClient(app)
+
+
+def test_auth_status_is_connected_when_only_a_refresh_is_needed(tmp_path, monkeypatch):
+    """A refreshable session is usable, so the UI must not demand a reconnect."""
+    client = _session_client(tmp_path, monkeypatch, "stale", "rt", -10)
+    assert client.get("/api/auth/status").json()["authenticated"] is True
+
+
+def test_auth_status_is_disconnected_when_the_token_died_unrefreshably(
+        tmp_path, monkeypatch):
+    """The failure that stranded the UI: status said connected, every search 401d."""
+    client = _session_client(tmp_path, monkeypatch, "stale", None, -10)
+    assert client.get("/api/auth/status").json()["authenticated"] is False
