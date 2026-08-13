@@ -22,6 +22,18 @@ from kord.theory.scales import note_name, scale_for, uses_sharps
 CONFIDENCE_FLOOR = 0.35
 KEY_CONFIDENCE_FLOOR = 0.6
 
+# mimetypes maps .m4a to audio/mp4a-latm (LATM-packaged AAC, which browsers
+# refuse) and .webm to video/webm. Both are wrong for what we serve, so the
+# type is pinned here rather than guessed.
+AUDIO_MEDIA_TYPES = {
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".webm": "audio/webm",
+    ".opus": "audio/ogg",
+    ".ogg": "audio/ogg",
+    ".mp3": "audio/mpeg",
+}
+
 _SUFFIX = {
     "major": "", "minor": "m", "major7": "maj7", "minor7": "m7",
     "dominant7": "7", "diminished": "dim", "augmented": "aug",
@@ -248,7 +260,11 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
         if path is None:
             raise HTTPException(status_code=404, detail="audio not retained")
         db.touch_played(conn, track_id)
-        return FileResponse(path)
+        return FileResponse(
+            path,
+            media_type=AUDIO_MEDIA_TYPES.get(
+                path.suffix.lower(), "application/octet-stream"),
+        )
 
     @app.get("/api/track/{track_id}/events")
     async def events(track_id: str):

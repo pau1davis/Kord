@@ -387,3 +387,38 @@ def test_auth_status_is_disconnected_when_the_token_died_unrefreshably(
     """The failure that stranded the UI: status said connected, every search 401d."""
     client = _session_client(tmp_path, monkeypatch, "stale", None, -10)
     assert client.get("/api/auth/status").json()["authenticated"] is False
+
+
+def test_audio_endpoint_pins_m4a_to_audio_mp4(tmp_path, monkeypatch):
+    """mimetypes guesses audio/mp4a-latm for .m4a, which browsers refuse."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+
+    settings = settings_for(tmp_path)
+    settings.audio_dir.mkdir(parents=True, exist_ok=True)
+    (settings.audio_dir / "t1.m4a").write_bytes(b"0123456789")
+    db.set_audio_ext(conn, "t1", ".m4a")
+
+    client = TestClient(create_app(settings, FakeSpotify(), conn))
+    response = client.get("/api/track/t1/audio")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/mp4"
+
+
+def test_audio_endpoint_serves_webm_as_audio_not_video(tmp_path, monkeypatch):
+    """The file is audio-only; video/webm is what mimetypes would have said."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+
+    settings = settings_for(tmp_path)
+    settings.audio_dir.mkdir(parents=True, exist_ok=True)
+    (settings.audio_dir / "t1.webm").write_bytes(b"0123456789")
+    db.set_audio_ext(conn, "t1", ".webm")
+
+    client = TestClient(create_app(settings, FakeSpotify(), conn))
+    response = client.get("/api/track/t1/audio")
+    assert response.headers["content-type"] == "audio/webm"
