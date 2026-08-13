@@ -9,6 +9,29 @@ from kord.analysis.pipeline import NoAudioFound
 log = logging.getLogger("kord.worker")
 
 
+def _record_retained_audio(conn, pipeline, spotify_id: str) -> None:
+    """After a successful run, note what got retained and trim back under cap.
+
+    The pipeline never touches the database — analysis stays decoupled from it
+    on purpose — so discovery happens here instead: `AudioStore.path_for` globs
+    for whatever the pipeline may have retained, rather than the pipeline
+    reporting it directly. Eviction runs right after, so the store can briefly
+    overshoot its cap but never stays over it. Never raises: a bookkeeping or
+    eviction failure must not turn a successful analysis into a failed job.
+    """
+    store = getattr(pipeline, "audio_store", None)
+    if store is None:
+        return
+    try:
+        path = store.path_for(spotify_id)
+        if path is None:
+            return
+        db.set_audio_ext(conn, spotify_id, path.suffix)
+        store.evict_to_fit(conn, incoming_bytes=0)
+    except Exception:
+        log.warning("could not record/evict retained audio for %s", spotify_id, exc_info=True)
+
+
 def run_one_job(conn, pipeline) -> str | None:
     """Claim and run a single job. Returns the terminal state, or None if idle.
 
@@ -40,6 +63,7 @@ def run_one_job(conn, pipeline) -> str | None:
         return "failed"
 
     db.save_analysis(conn, analysis)
+    _record_retained_audio(conn, pipeline, job["spotify_id"])
     db.finish_job(conn, job["id"], "done", None)
     return "done"
 

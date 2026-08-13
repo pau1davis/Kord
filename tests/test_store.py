@@ -1,3 +1,6 @@
+import shutil
+from pathlib import Path
+
 import pytest
 
 from kord import db
@@ -71,6 +74,32 @@ def test_eviction_stops_once_it_fits(tmp_path, conn):
     db.set_audio_ext(conn, "t1", ".webm")
     assert store.evict_to_fit(conn, incoming_bytes=100) == []
     assert store.path_for("t1") is not None
+
+
+def test_retain_failure_leaves_no_truncated_file(tmp_path, conn, monkeypatch):
+    """A failure partway through must never leave a stub at the final name.
+
+    Simulates a disk-full mid-copy: the fake copy2 partially writes its
+    destination and then raises, same as a real `shutil.copy2` would. Because
+    `retain` now copies to a hidden temp name and `os.replace`s it in, the
+    partial write should land on the temp file only — the previous good copy
+    at the real name must survive untouched, and no stray temp file remains.
+    """
+    store = AudioStore(tmp_path / "audio", cap_bytes=10_000)
+    good = store.retain("t1", make_source(tmp_path, "a.webm", 100))
+
+    def broken_copy2(src, dst):
+        Path(dst).write_bytes(b"x" * 10)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(shutil, "copy2", broken_copy2)
+
+    with pytest.raises(OSError):
+        store.retain("t1", make_source(tmp_path, "b.webm", 500))
+
+    assert store.path_for("t1") == good, "previous good copy must still be there"
+    assert good.stat().st_size == 100, "must not have been overwritten with a stub"
+    assert list((tmp_path / "audio").iterdir()) == [good], "no stray temp file left behind"
 
 
 def test_eviction_keeps_the_analysis(tmp_path, conn):
