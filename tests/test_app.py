@@ -293,3 +293,36 @@ def test_playing_records_the_play_for_eviction_ordering(tmp_path, monkeypatch):
     client.get("/api/track/t1/audio")
     row = conn.execute("SELECT last_played_at FROM track WHERE spotify_id='t1'").fetchone()
     assert row["last_played_at"] is not None
+
+
+def test_track_payload_includes_sections(client):
+    c, conn = client
+    from kord.models import Section
+    db.upsert_track(conn, "t1", "Radiohead", "Creep", "Pablo Honey", 238640)
+    db.save_analysis(conn, Analysis(
+        spotify_id="t1", engine_version="chroma-1",
+        key=KeyEstimate(0, "major", 0.85, True), tempo=92.0,
+        beat_grid=BeatGrid([0.0, 0.65], 92.0),
+        chord_segments=[ChordSegment(0.0, 4.0, 0, "major", 0.9)],
+        source_url="u", source_duration_ms=238000, time_scale=1.0,
+        sync_offset_ms=511, flags=[], chord_confidence_mean=0.85,
+        sections=[Section(0.0, 30.0, "A"), Section(30.0, 60.0, "B")]))
+    body = c.get("/api/track/t1").json()
+    assert body["sections"] == [
+        {"start_s": 0.0, "end_s": 30.0, "label": "A"},
+        {"start_s": 30.0, "end_s": 60.0, "label": "B"},
+    ]
+    assert body["sync_offset_ms"] == 511
+
+
+def test_track_payload_reports_whether_audio_is_available(client):
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+    assert c.get("/api/track/t1").json()["has_audio"] is False
+
+
+def test_track_payload_includes_the_beat_grid(client):
+    """BeatStrip needs these; they were stored in Phase 1 but never sent."""
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+    assert c.get("/api/track/t1").json()["beats"] == [0.0, 0.65]

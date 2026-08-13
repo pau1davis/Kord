@@ -36,7 +36,7 @@ def chord_label(root: int, quality: str, prefer_sharps: bool = False) -> str:
     return f"{note_name(root, prefer_sharps)}{_SUFFIX.get(quality, '')}"
 
 
-def render_analysis(analysis: Analysis) -> dict:
+def render_analysis(analysis: Analysis, has_audio: bool = False) -> dict:
     """Shape an Analysis for the UI: chart, palette and theory from one record."""
     key = analysis.key
     sharps = uses_sharps(key.root, key.mode)
@@ -69,6 +69,12 @@ def render_analysis(analysis: Analysis) -> dict:
         "heaviness": round(analysis.heaviness, 3),
         "flags": analysis.flags,
         "sync_offset_ms": analysis.sync_offset_ms,
+        "sections": [
+            {"start_s": round(s.start_s, 3), "end_s": round(s.end_s, 3), "label": s.label}
+            for s in analysis.sections
+        ],
+        "has_audio": has_audio,
+        "beats": analysis.beat_grid.times_s,
     }
 
 
@@ -204,7 +210,9 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
         analysis = db.get_analysis(conn, track_id, engine_version)
         if analysis is not None:
-            return {"track": track, **render_analysis(analysis)}
+            store = AudioStore(settings.audio_dir, settings.audio_cap_bytes)
+            has_audio = store.path_for(track_id) is not None
+            return {"track": track, **render_analysis(analysis, has_audio)}
 
         job = conn.execute(
             "SELECT state, error FROM job WHERE spotify_id=? ORDER BY id DESC LIMIT 1",
