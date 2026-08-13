@@ -49,11 +49,44 @@ describe("findChordAt", () => {
 
 describe("collapseShortSegments", () => {
   it("merges runs shorter than the minimum", () => {
+    // The C+G run only spans 0.2s, so it cannot stand on its own either — it
+    // is absorbed into Am, the longer neighbour, rather than emitted at 0.2s.
     const out = collapseShortSegments(
       [entry(0, 0.1, "C"), entry(0.1, 0.2, "G"), entry(0.2, 2, "Am")], 0.4);
-    expect(out).toHaveLength(2);
+    expect(out).toHaveLength(1);
+    expect(out[0].label).toBe("Am");
+    expect(out[0].start_s).toBeCloseTo(0);
+    expect(out[0].end_s).toBeCloseTo(2);
+  });
+
+  it("never emits a segment under the minimum", () => {
+    // The invariant the hero display depends on. A lone short chord between
+    // two long ones used to pass straight through and strobe.
+    const out = collapseShortSegments(
+      [entry(0, 2, "C"), entry(2, 2.09, "F#"), entry(2.09, 4, "G")], 0.4);
+    expect(out.every((e) => e.end_s - e.start_s >= 0.4)).toBe(true);
+    expect(out.map((e) => e.label)).toEqual(["C", "G"]);
+  });
+
+  it("absorbs a short segment into whichever neighbour is longer", () => {
+    const out = collapseShortSegments(
+      [entry(0, 0.6, "C"), entry(0.6, 0.7, "F#"), entry(0.7, 5, "G")], 0.4);
+    expect(out.map((e) => e.label)).toEqual(["C", "G"]);
+    expect(out[1].start_s).toBeCloseTo(0.6);
+  });
+
+  it("absorbs a trailing short segment backwards", () => {
+    const out = collapseShortSegments(
+      [entry(0, 3, "C"), entry(3, 3.05, "B")], 0.4);
+    expect(out).toHaveLength(1);
     expect(out[0].label).toBe("C");
-    expect(out[0].end_s).toBeCloseTo(0.2);
+    expect(out[0].end_s).toBeCloseTo(3.05);
+  });
+
+  it("keeps a single segment even when the whole song is shorter", () => {
+    const out = collapseShortSegments([entry(0, 0.1, "C")], 0.4);
+    expect(out).toHaveLength(1);
+    expect(out[0].label).toBe("C");
   });
 
   it("keeps long segments untouched", () => {

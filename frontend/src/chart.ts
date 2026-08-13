@@ -40,11 +40,49 @@ export function findChordAt(entries: ChartEntry[], t: number): ChartEntry | null
 }
 
 /**
- * Collapse runs of very short chords for display only.
+ * Absorb any segment still under the minimum into its longer neighbour.
+ *
+ * Merging only ever lengthens a segment and removes one, so this terminates,
+ * and it stops at a single segment: a song shorter than `minSeconds` has
+ * nowhere left to merge to. Ties go to the previous segment, which reads as
+ * holding the chord you are already playing through the blip.
+ */
+function absorbShortSegments(
+  segments: ChartEntry[],
+  minSeconds: number,
+): ChartEntry[] {
+  const out = segments.map((e) => ({ ...e }));
+
+  while (out.length > 1) {
+    const i = out.findIndex((e) => e.end_s - e.start_s < minSeconds);
+    if (i === -1) break;
+
+    const previous = out[i - 1];
+    const next = out[i + 1];
+    const keepPrevious = next === undefined
+      || (previous !== undefined
+        && previous.end_s - previous.start_s >= next.end_s - next.start_s);
+    const keeper = keepPrevious ? previous : next;
+
+    keeper.start_s = Math.min(keeper.start_s, out[i].start_s);
+    keeper.end_s = Math.max(keeper.end_s, out[i].end_s);
+    out.splice(i, 1);
+  }
+
+  return out;
+}
+
+/**
+ * Collapse very short chords for display only.
  *
  * Mouth for War changes chord 171 times in 4 minutes, sometimes twice a second;
- * a large display strobes unreadably. The dominant chord of a collapsed run
- * wins. The input is never modified — the chord sheet still shows every change.
+ * a large display strobes unreadably. Runs of short chords collapse into their
+ * dominant chord, and anything still under the minimum — a lone 92ms chord
+ * between two long ones, which a run-based pass alone would let straight
+ * through — is absorbed into its longer neighbour. No output segment is ever
+ * shorter than `minSeconds` unless the whole song is.
+ *
+ * The input is never modified — the chord sheet still shows every change.
  */
 export function collapseShortSegments(
   entries: ChartEntry[],
@@ -75,7 +113,8 @@ export function collapseShortSegments(
     }
   }
   flush();
-  return out;
+
+  return absorbShortSegments(out, minSeconds);
 }
 
 /** Seek target when playback leaves the loop, or null if it is still inside. */

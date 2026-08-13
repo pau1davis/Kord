@@ -8,7 +8,7 @@ Verified against a fresh end-to-end analysis of **Pantera — Mouth for War**
 | Suite | Result |
 |---|---|
 | `pytest` | 231 passed |
-| `vitest` | 20 passed (2 files) |
+| `vitest` | 24 passed (2 files) |
 | `npm run build` | clean, `tsc -b` included |
 
 The backend count rose from 226 to 231: five new tests cover the download
@@ -48,32 +48,40 @@ by-ear/by-eye checks in the plan are **not** verified. They remain open:
 3. Does looping a section repeat cleanly?
 4. Does the hero chord stay readable on a fast song?
 
-§4 below is quantitative evidence bearing on 4; it is not a substitute for
-listening. §6 is a concrete risk bearing on 1–3.
+§4 below is quantitative evidence bearing on check 4 — the segment durations
+feeding the display are now provably readable — but whether it *reads* well at
+speed still needs eyes on it. §6 is a concrete risk bearing on 1–3.
 
-## 4. Finding: `collapseShortSegments` does not prevent the strobe
+## 4. Fixed: `collapseShortSegments` did not prevent the strobe
 
-This is the substantive defect found. Running the real chart through the
-same 0.4 s collapse the hero display uses:
+This was the substantive defect found. The function only merged *consecutive
+runs* of short chords: a single short chord sandwiched between two long ones
+was flushed through unchanged, because `flush()` emitted whatever was in the
+run regardless of whether the run had reached `minSeconds`. The shortest
+survivor was 92 ms — precisely the unreadable flicker the function exists to
+remove. The first unit test had encoded the bug, asserting a 0.2 s output
+segment under a 0.4 s minimum.
 
-```
-input                171 segments, min 0.092s, 45 under 0.4s
-after collapse       159 segments, min 0.092s, 24 still under 0.4s
-worst-case rate      652 chord changes per minute
-```
+`absorbShortSegments` now runs as a second pass: any segment still under the
+minimum is merged into whichever neighbour is longer, ties going to the
+previous segment (which reads as holding the chord you are already playing
+through the blip). Merging only lengthens a segment and removes one, so it
+terminates, and it stops at a single segment — a song shorter than the
+minimum has nowhere left to merge to.
 
-The function only merges *consecutive runs* of short chords. A single short
-chord sandwiched between two long ones is flushed through unchanged, because
-`flush()` emits whatever is in the run regardless of whether the run reached
-`minSeconds`. Twenty-four segments therefore survive below the threshold, the
-shortest at 92 ms — which is precisely the unreadable flicker the function
-exists to remove.
+The invariant is now: **no output segment is shorter than `minSeconds` unless
+the whole song is.** Measured against this track's real chart at 0.4 s:
 
-The fix is a design decision rather than a typo, which is why it is recorded
-here rather than patched: a lone 92 ms chord has to go *somewhere*, and the
-options (absorb into the previous segment, absorb into whichever neighbour is
-longer, or drop it from the display entirely) differ musically. The chord
-sheet shows every change either way, so this only affects the hero display.
+| | before | after |
+|---|---|---|
+| segments | 159 | 135 |
+| under 0.4 s | 24 | **0** |
+| shortest | 0.092 s | 0.462 s |
+| worst-case rate | 652/min | 130/min |
+| coverage | 0.00→233.52 | 0.00→233.52 |
+
+Coverage is unchanged, so nothing is dropped from the timeline. The chord
+sheet still shows all 171 changes; this only affects the hero display.
 
 ## 5. Finding: a single failed download killed the whole song
 

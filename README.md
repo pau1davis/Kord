@@ -130,8 +130,8 @@ evicts least-recently-used files when it would go over.
 
 Known rough edges are recorded in
 `docs/notes/2026-08-13-phase-2-verification.md` — most notably
-that the hero display still flickers on very fast chord changes, and that
-stored audio is WebM, which Safari may refuse to play.
+that stored audio is WebM, which Safari may refuse to play, and that section
+detection is coarse enough to be navigation rather than a verse/chorus map.
 
 Listening-history mood ring, recommendations, chart export and bass tablature
 are later phases — see the spec.
