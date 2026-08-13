@@ -7,12 +7,13 @@ Verified against a fresh end-to-end analysis of **Pantera — Mouth for War**
 
 | Suite | Result |
 |---|---|
-| `pytest` | 231 passed |
+| `pytest` | 234 passed |
 | `vitest` | 24 passed (2 files) |
 | `npm run build` | clean, `tsc -b` included |
 
-The backend count rose from 226 to 231: five new tests cover the download
-fallback described in §5.
+The backend count rose from 226 to 234: five new tests cover the download
+fallback in §5, three the token expiry in §8. The frontend rose from 20 to 24,
+covering the collapse invariant in §4.
 
 ## 2. End-to-end analysis
 
