@@ -412,7 +412,7 @@ body {
 
 .playalong { padding: var(--gutter); display: grid; gap: 1rem; justify-items: start; }
 
-.hero .chord {
+.hero-chord {
   display: block;
   font-family: var(--display);
   font-weight: 800;

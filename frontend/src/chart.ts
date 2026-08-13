@@ -14,8 +14,13 @@ export function chartTime(currentTime: number, syncOffsetMs: number): number {
   return currentTime - syncOffsetMs / 1000;
 }
 
-/** Binary search for the segment containing `t`. Start inclusive, end exclusive. */
-export function findChordAt(entries: ChartEntry[], t: number): ChartEntry | null {
+/**
+ * Binary search for the index of the segment containing `t`, or -1.
+ *
+ * Split out from `findChordAt` so a caller that also needs the index (e.g. to
+ * look up the next segment) doesn't have to re-scan with `indexOf` afterward.
+ */
+export function findChordIndexAt(entries: ChartEntry[], t: number): number {
   let lo = 0;
   let hi = entries.length - 1;
   while (lo <= hi) {
@@ -23,9 +28,15 @@ export function findChordAt(entries: ChartEntry[], t: number): ChartEntry | null
     const e = entries[mid];
     if (t < e.start_s) hi = mid - 1;
     else if (t >= e.end_s) lo = mid + 1;
-    else return e;
+    else return mid;
   }
-  return null;
+  return -1;
+}
+
+/** Binary search for the segment containing `t`. Start inclusive, end exclusive. */
+export function findChordAt(entries: ChartEntry[], t: number): ChartEntry | null {
+  const index = findChordIndexAt(entries, t);
+  return index === -1 ? null : entries[index];
 }
 
 /**

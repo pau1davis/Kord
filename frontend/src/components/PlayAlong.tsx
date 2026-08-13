@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ChartEntry } from "../api";
-import { chartTime, collapseShortSegments, findChordAt } from "../chart";
+import { chartTime, collapseShortSegments, findChordIndexAt } from "../chart";
 import type { Player } from "../player";
 import { BeatStrip } from "./BeatStrip";
 
@@ -22,16 +22,22 @@ export function PlayAlong({
   const display = useMemo(
     () => collapseShortSegments(chart, HERO_MIN_SECONDS), [chart]);
 
+  // Display-only: the source of truth for playback rate is player.el.playbackRate,
+  // set via player.setRate(). This state exists purely so the active-button
+  // highlight updates on click even while paused, when currentTime doesn't change
+  // and usePlayhead (owned by App) wouldn't otherwise trigger a re-render here.
+  const [selectedRate, setSelectedRate] = useState(player.el.playbackRate);
+
   const now = chartTime(currentTime, syncOffsetMs);
-  const current = findChordAt(display, now);
-  const index = current ? display.indexOf(current) : -1;
+  const index = findChordIndexAt(display, now);
+  const current = index >= 0 ? display[index] : null;
   const next = index >= 0 ? display[index + 1] : display[0];
   const until = next ? Math.max(0, next.start_s - now) : null;
 
   return (
     <section className="playalong">
       <div className="hero" style={{ ["--hue" as string]: current?.hue ?? 220 }}>
-        <span className="chord">{current ? current.label : "—"}</span>
+        <span className="hero-chord">{current ? current.label : "—"}</span>
         <span className="roman">{current?.roman ?? ""}</span>
       </div>
 
@@ -59,8 +65,11 @@ export function PlayAlong({
           {RATES.map((rate) => (
             <button
               key={rate}
-              onClick={() => player.setRate(rate)}
-              className={player.el.playbackRate === rate ? "on" : undefined}
+              onClick={() => {
+                player.setRate(rate);
+                setSelectedRate(rate);
+              }}
+              className={selectedRate === rate ? "on" : undefined}
             >
               {rate}×
             </button>
