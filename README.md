@@ -107,5 +107,31 @@ test enforces that. Swapping audio providers means writing one adapter.
 
 ## Status
 
-Phase 1. Playback and play-along scrolling, listening-history mood ring,
-recommendations, chart export and bass tablature are later phases — see the spec.
+Phase 2. You can play a song back and follow along with it.
+
+Playback comes from the audio Kord analysed, not from Spotify. That is what
+makes the sync exact: the chord timestamps were measured against this exact
+file, so there is nothing to calibrate and nothing to drift. Spotify is used
+for search and metadata only — no playback SDK, no premium requirement.
+
+What works:
+
+- **Play along** — a hero chord that changes with the music, what is coming
+  next, and a beat strip for context.
+- **Slow down** to 0.75× or 0.5× without changing pitch.
+- **Loop a section** — drag across the song map to pick a range, click a
+  block to jump to it.
+- **The full chord sheet** is still there, collapsed behind a disclosure, and
+  every row seeks.
+
+Analysed audio is kept on disk under `~/.kord/audio` so a song is only ever
+downloaded once. The store is capped by `KORD_AUDIO_CAP_GB` (default 2) and
+evicts least-recently-used files when it would go over.
+
+Known rough edges are recorded in
+`docs/notes/2026-08-13-phase-2-verification.md` — most notably
+that the hero display still flickers on very fast chord changes, and that
+stored audio is WebM, which Safari may refuse to play.
+
+Listening-history mood ring, recommendations, chart export and bass tablature
+are later phases — see the spec.
