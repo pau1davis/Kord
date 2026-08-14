@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getTrack, type TrackResponse, type TrackSummary } from "./api";
 import { chartTime, loopTarget, type LoopRange } from "./chart";
 import { usePlayhead } from "./hooks/usePlayhead";
@@ -9,6 +9,7 @@ import { MoodRing } from "./components/MoodRing";
 import { PlayAlong } from "./components/PlayAlong";
 import { SearchBar } from "./components/SearchBar";
 import { SongMap } from "./components/SongMap";
+import { StemMixer } from "./components/StemMixer";
 import { TheoryPanel } from "./components/TheoryPanel";
 import "./styles.css";
 
@@ -77,6 +78,18 @@ export default function App() {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [player, data?.sync_offset_ms]);
+
+  // The mixer owns its own AudioContext, so the two must never sound at once.
+  const [stemsActive, setStemsActive] = useState(false);
+  // Stable identity: the mixer tears down its player in a cleanup keyed on
+  // this prop, so a new function each render would destroy it every render.
+  const handleStemsActive = useCallback((active: boolean) => {
+    setStemsActive(active);
+  }, []);
+
+  useEffect(() => {
+    if (stemsActive) player?.pause();
+  }, [stemsActive, player]);
 
   const seekToChart = (t: number) =>
     player?.seek(t + (data?.sync_offset_ms ?? 0) / 1000);
@@ -157,6 +170,7 @@ export default function App() {
                 <TheoryPanel theory={data.theory} flags={data.flags ?? []} />
               </div>
               <ChordSheet entries={data.chart} onSeek={seekToChart} />
+              <StemMixer trackId={track.id} onActiveChange={handleStemsActive} />
             </>
           )}
         </main>

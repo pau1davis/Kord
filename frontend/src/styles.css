@@ -485,3 +485,31 @@ body {
   background: none; border: 0; color: inherit; text-align: left;
   cursor: pointer; padding: 0; font: inherit; width: 100%;
 }
+
+/* ── Stem mixer ───────────────────────────────────────────── */
+
+.stems { padding: 0 var(--gutter) var(--gutter); display: grid; gap: 0.7rem; }
+.stems .hint { color: var(--text-dim); font: 400 0.8rem var(--mono); margin: 0; }
+.stems .sep {
+  justify-self: start; background: none; border: 1px solid var(--line);
+  color: var(--brass); border-radius: 999px; padding: 0.45rem 0.9rem;
+  font: 500 0.8rem var(--mono); cursor: pointer;
+}
+.stems .sep:hover { border-color: var(--brass); }
+.mixhead { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+.mixer { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.mixer li {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem;
+  align-items: center; border: 1px solid var(--line); border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+}
+.mixer li.on { border-color: var(--brass); }
+.mixer .name {
+  font: 500 0.85rem var(--mono); text-transform: capitalize; color: var(--text);
+}
+.mixer .tog {
+  background: none; border: 1px solid var(--line); color: var(--text-dim);
+  border-radius: 999px; padding: 0.2rem 0.6rem;
+  font: 500 0.7rem var(--mono); cursor: pointer;
+}
+.mixer .tog.on { border-color: var(--brass); color: var(--brass); }
