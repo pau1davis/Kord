@@ -126,6 +126,30 @@ Plus a regression test asserting tempo and median beat gap always agree.
 
 ## 4. Part 2 — tuning
 
+> **Revised 2026-08-14 after prototyping. Part 2 now depends on Part 4 and is
+> built after it.** Measurement on real songs showed the two halves of this
+> part have very different reliability:
+>
+> - **Reference pitch works.** A circular median of `estimate_tuning` over 30 s
+>   windows is stable: Mercy Mercy Me reads 7, 7, 6, 7, 6, 4 cents. It must be a
+>   circular statistic — Mouth for War reads 49, 49, 48, 47, −43, −50, 42, which
+>   is one value near the ±50 wraparound, not a spread of 99 cents.
+> - **Lowest sounding note does not.** Every method tried on the full mix —
+>   CQT energy, sustained presence, harmonic support, harmonic-sum salience on
+>   the harmonic component — either returns the bottom bin (sub-bass rumble) or
+>   moves by one to two semitones with the threshold. The harmonic-supported
+>   detector returns D♯1 (38.9 Hz) for Mercy Mercy Me, below the low E of a
+>   bass guitar. A semitone of error is exactly the E-standard/Eb-standard
+>   distinction, so the naming built on top of it would be worthless.
+>
+> Naming a tuning from that number would make Kord confidently wrong with
+> nothing to check it against — the outcome §4.2 exists to avoid.
+>
+> **Resolution:** build Part 4 first. Detecting the lowest note of an isolated
+> guitar stem is a far easier problem than from a full mix, because the rumble,
+> the bass and the drums are gone. Part 2 is then built on the stem, and keeps
+> the naming promise below intact rather than diluting it.
+
 ### 4.1 What is measurable and what is not
 
 If a whole band tunes down a semitone, the recording remains perfectly in
@@ -326,11 +350,13 @@ Part 2's `string_pitches` exists to make the first of these cheap when it comes.
 
 ## 10. Build order
 
-1. Part 0 — m4a + engine bump. Everything else assumes it.
+1. Part 0 — m4a + engine bump. Everything else assumes it. **Done.**
 2. Part 1 — tempo. Small, self-contained, fixes wrong output already shipped.
-3. Part 2 — tuning. Same subsystem as Part 1.
-4. Part 3 — taste home screen. Depends on nothing above except a working queue.
-5. Part 4 — stems. Largest, and the only part introducing a new dependency.
+   **Done.**
+3. Part 4 — stems. Largest, and the only part introducing a new dependency.
+   Moved ahead of Part 2 on 2026-08-14: see the note at the head of §4.
+4. Part 2 — tuning, built on the isolated guitar stem from Part 4.
+5. Part 3 — taste home screen. Depends on nothing above except a working queue.
 
 Each part gets its own implementation plan. One plan spanning all five would be
 too large to execute or review sensibly.
