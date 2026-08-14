@@ -3,6 +3,12 @@ import { getStems, requestStems, type StemState } from "../api";
 import { createStemPlayer, type StemPlayer } from "../stemPlayer";
 import { STEM_ORDER } from "../stems";
 
+function timecode(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export function StemMixer({
   trackId, onActiveChange,
 }: {
@@ -14,9 +20,9 @@ export function StemMixer({
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [player, setPlayer] = useState<StemPlayer | null>(null);
-  const [muted, setMuted] = useState<Set<string>>(new Set());
-  const [soloed, setSoloed] = useState<Set<string>>(new Set());
+  const [enabled, setEnabled] = useState<Set<string>>(new Set());
   const [playing, setPlaying] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const playerRef = useRef<StemPlayer | null>(null);
 
   // Poll while separation is running. Roughly 2 minutes for a 4 minute song.
@@ -53,26 +59,35 @@ export function StemMixer({
       playerRef.current = null;
       setPlayer(null);
       setPlaying(false);
+      setElapsed(0);
       onActiveChange(false);
     };
   }, [trackId, onActiveChange]);
 
   useEffect(() => {
-    player?.applyGains(muted, soloed);
-  }, [player, muted, soloed]);
+    player?.applyGains(enabled);
+  }, [player, enabled]);
 
-  const toggle = (set: Set<string>, name: string) => {
-    const next = new Set(set);
-    if (next.has(name)) next.delete(name);
-    else next.add(name);
-    return next;
-  };
+  // Every part runs the whole time and is only gain-gated, so they share one
+  // position. Showing it makes that visible rather than something to take on
+  // trust: switch a part on at 0:30 and it arrives at 0:30.
+  useEffect(() => {
+    if (!player) return;
+    let frame = 0;
+    const tick = () => {
+      setElapsed(player.elapsed());
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [player]);
 
   async function load() {
     const created = await createStemPlayer(
       trackId, available, () => setPlaying(false));
     playerRef.current = created;
     setPlayer(created);
+    setEnabled(new Set(created.names));
     onActiveChange(true);
   }
 
@@ -90,7 +105,7 @@ export function StemMixer({
         </button>
         <p className="hint">
           Splits the song into guitar, bass, drums, vocals, piano and the rest so
-          you can solo or mute each one. Takes a couple of minutes.
+          you can pick which ones you hear. Takes a couple of minutes.
         </p>
       </div>
     );
@@ -145,32 +160,65 @@ export function StemMixer({
         >
           {playing ? "Pause" : "Play"} parts
         </button>
-        <span className="hint">A practice aid — separation is never perfect.</span>
+
+        <span className="clock">
+          {timecode(elapsed)} / {timecode(player.duration)}
+        </span>
+
+        <input
+          className="scrub"
+          type="range"
+          min={0}
+          max={Math.max(1, Math.floor(player.duration))}
+          value={Math.floor(elapsed)}
+          aria-label="Position in the song"
+          onChange={(event) => {
+            player.seek(Number(event.target.value));
+            setElapsed(player.elapsed());
+          }}
+        />
       </div>
+
+      <p className="hint">
+        Pick the parts you want to hear. They all run together, so switching one
+        on drops it in where the song already is.
+      </p>
 
       <ul className="mixer">
         {ordered.map((name) => {
-          const isSolo = soloed.has(name);
-          const isMuted = muted.has(name);
+          const on = enabled.has(name);
           return (
-            <li key={name} className={isSolo ? "on" : undefined}>
-              <span className="name">{name}</span>
+            <li key={name} className={on ? "on" : undefined}>
               <button
-                className={isMuted ? "tog on" : "tog"}
-                onClick={() => setMuted((m) => toggle(m, name))}
+                className="part"
+                aria-pressed={on}
+                onClick={() => setEnabled((current) => {
+                  const next = new Set(current);
+                  if (next.has(name)) next.delete(name);
+                  else next.add(name);
+                  return next;
+                })}
               >
-                mute
+                <span className="dot" aria-hidden="true" />
+                <span className="name">{name}</span>
               </button>
               <button
-                className={isSolo ? "tog on" : "tog"}
-                onClick={() => setSoloed((s) => toggle(s, name))}
+                className="only"
+                title={`Hear ${name} on its own`}
+                onClick={() => setEnabled(new Set([name]))}
               >
-                solo
+                only
               </button>
             </li>
           );
         })}
       </ul>
+
+      <div className="mixfoot">
+        <button className="only" onClick={() => setEnabled(new Set(ordered))}>
+          All parts
+        </button>
+      </div>
     </div>
   );
 }

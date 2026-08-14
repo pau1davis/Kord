@@ -9,7 +9,7 @@ export type StemPlayer = {
   play(from?: number): void;
   pause(): void;
   seek(seconds: number): void;
-  applyGains(muted: ReadonlySet<string>, soloed: ReadonlySet<string>): void;
+  applyGains(enabled: ReadonlySet<string>): void;
   destroy(): void;
 };
 
@@ -120,8 +120,8 @@ export async function createStemPlayer(
       if (wasPlaying) player.play();
     },
 
-    applyGains(muted, soloed) {
-      const values = gainsFor(names, muted, soloed);
+    applyGains(enabled) {
+      const values = gainsFor(names, enabled);
       for (const [name, gain] of gains) {
         // A short ramp instead of a jump: an instantaneous gain change on a
         // running signal is audible as a click.
@@ -136,6 +136,7 @@ export async function createStemPlayer(
     },
   };
 
-  player.applyGains(new Set(), new Set());
+  // Everything on to start with: the song as recorded, before you take it apart.
+  player.applyGains(new Set(names));
   return player;
 }

@@ -4,35 +4,31 @@ import { elapsedAt, gainsFor, STEM_ORDER } from "./stems";
 describe("gainsFor", () => {
   const all = ["drums", "bass", "guitar"];
 
-  it("plays everything when nothing is touched", () => {
-    expect(gainsFor(all, new Set(), new Set())).toEqual(
+  it("plays every part that is switched on", () => {
+    expect(gainsFor(all, new Set(all))).toEqual(
       { drums: 1, bass: 1, guitar: 1 });
   });
 
-  it("silences a muted stem", () => {
-    expect(gainsFor(all, new Set(["drums"]), new Set())).toEqual(
-      { drums: 0, bass: 1, guitar: 1 });
-  });
-
-  it("solo silences everything else", () => {
-    expect(gainsFor(all, new Set(), new Set(["guitar"]))).toEqual(
+  it("silences the parts that are switched off", () => {
+    expect(gainsFor(all, new Set(["guitar"]))).toEqual(
       { drums: 0, bass: 0, guitar: 1 });
   });
 
-  it("solo beats mute on the same stem", () => {
-    // Soloing a stem you had muted is an unambiguous request to hear it.
-    expect(gainsFor(all, new Set(["guitar"]), new Set(["guitar"]))).toEqual(
-      { drums: 0, bass: 0, guitar: 1 });
+  it("plays any combination you pick, not just one", () => {
+    // The whole point: learning a bassline against the drums means hearing
+    // exactly those two and nothing else.
+    expect(gainsFor(all, new Set(["bass", "drums"]))).toEqual(
+      { drums: 1, bass: 1, guitar: 0 });
   });
 
-  it("supports soloing several stems at once", () => {
-    expect(gainsFor(all, new Set(), new Set(["bass", "guitar"]))).toEqual(
-      { drums: 0, bass: 1, guitar: 1 });
+  it("everything off is silence, not a reset to everything on", () => {
+    expect(gainsFor(all, new Set())).toEqual(
+      { drums: 0, bass: 0, guitar: 0 });
   });
 
-  it("mutes still apply among non-soloed stems", () => {
-    expect(gainsFor(all, new Set(["bass"]), new Set())).toEqual(
-      { drums: 1, bass: 0, guitar: 1 });
+  it("ignores a name that is not one of the stems", () => {
+    expect(gainsFor(all, new Set(["trombone"]))).toEqual(
+      { drums: 0, bass: 0, guitar: 0 });
   });
 });
 

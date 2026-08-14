@@ -517,23 +517,54 @@ body {
   font: 500 0.8rem var(--mono); cursor: pointer;
 }
 .stems .sep:hover { border-color: var(--brass); }
-.mixhead { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
-.mixer { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.mixhead {
+  display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
+}
+.mixhead .clock {
+  font: 500 0.8rem var(--mono); color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.scrub {
+  flex: 1; min-width: 10rem; accent-color: var(--brass);
+  background: transparent; cursor: pointer;
+}
+
+.mixer {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
 .mixer li {
-  display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem;
+  display: grid; grid-template-columns: 1fr auto; gap: 0.4rem;
   align-items: center; border: 1px solid var(--line); border-radius: 8px;
-  padding: 0.45rem 0.7rem;
+  padding: 0.3rem 0.5rem 0.3rem 0.3rem;
+  background: color-mix(in srgb, var(--ink-raised) 55%, transparent);
 }
 .mixer li.on { border-color: var(--brass); }
+
+.mixer .part {
+  display: flex; align-items: center; gap: 0.55rem;
+  background: none; border: 0; color: var(--text-dim);
+  padding: 0.3rem 0.35rem; cursor: pointer; text-align: left;
+}
+.mixer li.on .part { color: var(--text); }
+.mixer .part .dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  border: 1px solid var(--text-dim); flex-shrink: 0;
+}
+.mixer li.on .part .dot { background: var(--brass); border-color: var(--brass); }
 .mixer .name {
-  font: 500 0.85rem var(--mono); text-transform: capitalize; color: var(--text);
+  font: 500 0.85rem var(--mono); text-transform: capitalize;
 }
-.mixer .tog {
+
+.mixer .only, .mixfoot .only {
   background: none; border: 1px solid var(--line); color: var(--text-dim);
-  border-radius: 999px; padding: 0.2rem 0.6rem;
-  font: 500 0.7rem var(--mono); cursor: pointer;
+  border-radius: 999px; padding: 0.2rem 0.55rem;
+  font: 500 0.68rem var(--mono); cursor: pointer;
 }
-.mixer .tog.on { border-color: var(--brass); color: var(--brass); }
+.mixer .only:hover, .mixfoot .only:hover {
+  border-color: var(--brass); color: var(--brass);
+}
+.mixfoot { display: flex; gap: 0.5rem; }
 
 /* ── Home ─────────────────────────────────────────────────── */
 

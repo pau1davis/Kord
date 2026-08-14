@@ -4,22 +4,19 @@ export const STEM_ORDER = [
 ] as const;
 
 /**
- * Gain per stem given the mute and solo sets.
+ * Gain per stem: one for the parts you have switched on, zero for the rest.
  *
- * Solo is exclusive: as soon as anything is soloed, only soloed stems sound.
- * Soloing a stem that is also muted plays it — asking to hear something is an
- * unambiguous instruction, and the alternative is a button that does nothing.
+ * Deliberately not a mixing desk. Mute-and-solo is a convention that assumes
+ * you already know it, and the thing a player actually wants is to choose the
+ * handful of parts they are working against — bass and drums while learning a
+ * line, say. So each part is simply on or off, and any combination is valid.
  */
 export function gainsFor(
   names: readonly string[],
-  muted: ReadonlySet<string>,
-  soloed: ReadonlySet<string>,
+  enabled: ReadonlySet<string>,
 ): Record<string, number> {
   const gains: Record<string, number> = {};
-  for (const name of names) {
-    if (soloed.size > 0) gains[name] = soloed.has(name) ? 1 : 0;
-    else gains[name] = muted.has(name) ? 0 : 1;
-  }
+  for (const name of names) gains[name] = enabled.has(name) ? 1 : 0;
   return gains;
 }
 
