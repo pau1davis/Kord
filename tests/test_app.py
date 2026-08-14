@@ -12,6 +12,10 @@ class FakeSpotify:
         return [{"id": "t1", "title": "Creep", "artist": "Radiohead",
                  "album": "Pablo Honey", "duration_ms": 238640, "image": None}]
 
+    async def top_tracks(self, token, limit=50, time_range="medium_term"):
+        return [{"id": "t1", "title": "Creep", "artist": "Radiohead",
+                 "album": "Pablo Honey", "duration_ms": 238640, "image": None}]
+
     async def get_track(self, track_id, token):
         return {"id": track_id, "title": "Creep", "artist": "Radiohead",
                 "album": "Pablo Honey", "duration_ms": 238640, "image": None}
@@ -492,3 +496,31 @@ def test_unknown_stem_name_404s(tmp_path, monkeypatch):
     db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
     c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
     assert c.get("/api/track/t1/stems/trombone").status_code == 404
+
+
+def test_me_top_returns_the_users_tracks(client):
+    c, _ = client
+    body = c.get("/api/me/top").json()
+    assert body[0]["artist"] == "Radiohead"
+
+
+def test_taste_reports_progress_before_anything_is_analysed(client):
+    c, _ = client
+    body = c.get("/api/me/taste").json()
+    assert body["analyzed"] == 0
+    assert body["total"] == 1
+    assert body["palette"] == []
+
+
+def test_analysing_top_tracks_enqueues_each_one(client):
+    c, conn = client
+    body = c.post("/api/me/top/analyze").json()
+    assert body["queued"] == 1
+    assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 1
+
+
+def test_analysing_top_tracks_twice_does_not_double_queue(client):
+    c, conn = client
+    c.post("/api/me/top/analyze")
+    c.post("/api/me/top/analyze")
+    assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 1

@@ -118,6 +118,24 @@ class SpotifyClient:
         _raise_for_spotify(response)
         return [self._track(item) for item in response.json()["tracks"]["items"]]
 
+    async def top_tracks(
+        self, access_token: str, limit: int = 50,
+        time_range: str = "medium_term",
+    ) -> list[dict]:
+        """The user's most played tracks.
+
+        Unrelated to SEARCH_LIMIT_MAX: the February 2026 development-mode cut
+        to 10 applies to /search only. Verified live, this returns 50.
+        """
+        http = await self._client()
+        response = await http.get(
+            f"{API_BASE}/me/top/tracks",
+            params={"limit": max(1, min(limit, 50)), "time_range": time_range},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        _raise_for_spotify(response)
+        return [self._track(item) for item in response.json()["items"]]
+
     async def get_track(self, track_id: str, access_token: str) -> dict:
         http = await self._client()
         response = await http.get(

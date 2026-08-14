@@ -17,6 +17,7 @@ from kord.engine import resolve_engine_version
 from kord.models import Analysis
 from kord.spotify import SCOPES, SpotifyError, authorize_url, build_pkce_pair
 from kord.theory.palette import build_palette
+from kord.theory.taste import aggregate_palette
 from kord.theory.qualities import NO_CHORD, hue_for
 from kord.theory.roman import roman_numeral
 from kord.theory.scales import note_name, scale_for, uses_sharps
@@ -226,6 +227,47 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
     @app.get("/api/search")
     async def search(q: str = Query(min_length=1)):
         return await spotify.search_tracks(q, await require_token())
+
+    @app.get("/api/me/top")
+    async def me_top():
+        return await spotify.top_tracks(await require_token())
+
+    @app.get("/api/me/taste")
+    async def me_taste():
+        """Palette over the top tracks already analysed, plus how far along
+        the background analysis is. Deliberately does not wait for it."""
+        tracks = await spotify.top_tracks(await require_token())
+        analyses = []
+        for track in tracks:
+            found = db.get_analysis(conn, track["id"], engine_version)
+            if found is not None:
+                analyses.append(found)
+        return {
+            "palette": [
+                {"hue": stop.hue, "weight": stop.weight}
+                for stop in aggregate_palette(analyses)
+            ],
+            "analyzed": len(analyses),
+            "total": len(tracks),
+        }
+
+    @app.post("/api/me/top/analyze")
+    async def analyze_top():
+        """Queue whatever is not analysed yet.
+
+        enqueue_job already reuses a pending job for the same song, so calling
+        this repeatedly is safe and costs nothing.
+        """
+        tracks = await spotify.top_tracks(await require_token())
+        queued = 0
+        for track in tracks:
+            db.upsert_track(
+                conn, track["id"], track["artist"], track["title"],
+                track["album"], track["duration_ms"])
+            if db.get_analysis(conn, track["id"], engine_version) is None:
+                db.enqueue_job(conn, track["id"])
+                queued += 1
+        return {"queued": queued, "total": len(tracks)}
 
     @app.get("/api/track/{track_id}")
     async def get_track(track_id: str):
