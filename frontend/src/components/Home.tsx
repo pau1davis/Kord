@@ -5,8 +5,14 @@ import {
 } from "../api";
 import { MoodRing } from "./MoodRing";
 
-/** How many sleeves ride the ring. More than this is noise, not a home screen. */
-const ON_THE_RING = 12;
+/**
+ * How many sleeves ride the ring.
+ *
+ * Eight, not twelve: at the radius that fits a laptop viewport, twelve cards
+ * are closer together than they are wide, so they overlap each other and run
+ * over the title. Circumference divided by count has to beat card width.
+ */
+const ON_THE_RING = 8;
 
 /**
  * Place one sleeve on the circle.
@@ -19,10 +25,8 @@ function orbitStyle(index: number, count: number): React.CSSProperties {
   const angle = (index / Math.max(1, count)) * 360;
   return {
     ["--angle" as string]: `${angle}deg`,
-    // Alternating rings so twelve sleeves don't collide on one circle.
-    ["--radius" as string]: index % 2 === 0
-      ? "clamp(140px, 30vmin, 300px)"
-      : "clamp(88px, 19vmin, 195px)",
+    // One ring, wide enough that no sleeve reaches the copy at the centre.
+    ["--radius" as string]: "clamp(185px, 34vmin, 340px)",
   };
 }
 
@@ -98,6 +102,7 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
         </div>
 
         <div className="home-copy">
+          <span className="strings" aria-hidden="true" />
           <p className="eyebrow">Your music</p>
           <h2>What you've been listening to.</h2>
           {taste && taste.analyzed < taste.total && (

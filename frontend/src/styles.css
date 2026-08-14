@@ -15,13 +15,33 @@
   --body: "Karla", ui-sans-serif, system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
 
+  --chalk: #f4f1ea;
+
   --gutter: clamp(1rem, 4vw, 3rem);
   --radius: 10px;
+
+  /* Display type is set condensed: a grotesque squeezed toward 80 width reads
+     like a setlist or a flyer rather than a corporate headline. */
+  --display-wdth: 82;
+}
+
+/* Six hairlines, the bottom one brass: a tab stave, which is the surface a
+   learner actually reads a song off. Used as a label rule, never decoration. */
+.strings {
+  height: 11px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      var(--line) 0 1px,
+      transparent 1px 2.2px);
+  border-bottom: 1px solid var(--brass);
+  opacity: 0.75;
 }
 
 * { box-sizing: border-box; }
 
-html, body, #root { height: 100%; }
+html, body { height: 100%; }
+#root { min-height: 100%; display: flex; flex-direction: column; }
 
 body {
   margin: 0;
@@ -164,7 +184,21 @@ body {
 }
 
 /* The song view sits its card at the bottom; the home screen centres its ring. */
-.mood-field:has(.home) { align-items: center; }
+.mood-field:has(.home) {
+  align-items: center;
+  flex: 1 1 auto;
+  border-bottom: 0;
+}
+
+/* On the home hero the colour reaches all four edges; a centred scrim buys the
+   title its contrast instead of a bottom fade that would band the screen. */
+.mood-field:has(.home) .veil {
+  background: radial-gradient(
+    ellipse 46% 40% at 50% 52%,
+    color-mix(in srgb, var(--ink) 78%, transparent) 0%,
+    color-mix(in srgb, var(--ink) 30%, transparent) 45%,
+    transparent 72%);
+}
 
 .mood-field .blob {
   position: absolute;
@@ -511,15 +545,22 @@ body {
   padding: var(--gutter) 0;
 }
 
-.home-copy { position: relative; z-index: 2; text-align: center; max-width: 34ch; }
+.home-copy {
+  position: relative; z-index: 2; text-align: center;
+  max-width: 24ch; display: grid; justify-items: center;
+}
+.home-copy .strings { width: 74px; margin-bottom: 0.9rem; }
 .home-copy .eyebrow {
-  font: 500 0.7rem var(--mono); letter-spacing: 0.14em;
+  font: 500 0.68rem var(--mono); letter-spacing: 0.22em;
   text-transform: uppercase; color: var(--text-dim); margin: 0;
 }
 .home-copy h2 {
   font-family: var(--display); font-weight: 800;
-  font-size: clamp(1.5rem, 3.6vw, 2.4rem); letter-spacing: -0.035em;
-  line-height: 1.05; margin: 0.4rem 0 0.5rem;
+  font-variation-settings: "wdth" var(--display-wdth);
+  font-size: clamp(2rem, 5.4vw, 3.6rem);
+  letter-spacing: -0.045em; line-height: 0.94;
+  color: var(--chalk);
+  margin: 0.55rem 0 0.6rem; text-wrap: balance;
 }
 .home .hint { color: var(--text-dim); font: 400 0.78rem var(--mono); margin: 0; }
 
@@ -552,9 +593,9 @@ body {
 .sleevecard {
   position: absolute;
   animation: kord-upright 150s linear infinite;
-  display: grid; grid-template-columns: auto 1fr; gap: 0.6rem;
-  align-items: center; width: max-content; max-width: 15rem;
-  padding: 0.45rem 0.7rem 0.45rem 0.45rem;
+  display: grid; grid-template-columns: auto 1fr; gap: 0.55rem;
+  align-items: center; width: max-content; max-width: 12.5rem;
+  padding: 0.4rem 0.65rem 0.4rem 0.4rem;
   background: color-mix(in srgb, var(--ink-raised) 82%, transparent);
   border: 1px solid var(--line); border-radius: 10px;
   backdrop-filter: blur(8px);
@@ -563,7 +604,7 @@ body {
 }
 .sleevecard:hover { border-color: var(--brass); }
 .sleevecard img, .sleevecard .no-art {
-  width: 44px; height: 44px; border-radius: 5px; display: block;
+  width: 40px; height: 40px; border-radius: 4px; display: block;
 }
 .sleevecard .no-art { background: var(--line); }
 .sleevecard .text { display: grid; min-width: 0; }
@@ -572,13 +613,16 @@ body {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .sleevecard .artist {
-  font: 400 0.72rem var(--mono); color: var(--text-dim);
+  font: 400 0.68rem var(--mono); color: var(--text-dim);
+  letter-spacing: 0.01em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-@media (max-width: 700px) {
-  .sleevecard { max-width: 11rem; padding: 0.35rem 0.5rem 0.35rem 0.35rem; }
-  .sleevecard img, .sleevecard .no-art { width: 34px; height: 34px; }
+@media (max-width: 760px) {
+  .sleevecard { max-width: 9rem; padding: 0.3rem 0.45rem 0.3rem 0.3rem; }
+  .sleevecard img, .sleevecard .no-art { width: 30px; height: 30px; }
+  .sleevecard .title { font-size: 0.72rem; }
+  .sleevecard .artist { font-size: 0.62rem; }
 }
 
 /* Stopped, the ring is still a ring — the sleeves just hold their positions. */
@@ -613,8 +657,9 @@ body {
 .nowmeta { min-width: 0; }
 .nowmeta h2 {
   font-family: var(--display); font-weight: 800;
-  font-size: clamp(1.3rem, 3.4vw, 2.1rem); letter-spacing: -0.035em;
-  line-height: 1.05; margin: 0;
+  font-variation-settings: "wdth" var(--display-wdth);
+  font-size: clamp(1.4rem, 3.6vw, 2.3rem); letter-spacing: -0.045em;
+  line-height: 0.98; color: var(--chalk); margin: 0;
 }
 .nowmeta .artist { color: var(--text-dim); margin: 0.2rem 0 0; }
 .nowmeta .facts {
@@ -623,6 +668,9 @@ body {
   font: 400 0.8rem var(--mono); color: var(--text-dim);
 }
 .nowmeta .facts b { color: var(--text); font-weight: 500; }
+.nowmeta .facts, .facts, .hero-chord, .upnext .in, .songmap .block {
+  font-variant-numeric: tabular-nums;
+}
 
 .nowcard .transport {
   display: flex; align-items: center; gap: 0.5rem;
