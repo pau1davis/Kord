@@ -82,3 +82,22 @@ export const getTrack = (id: string) => json<TrackResponse>(`/api/track/${id}`);
 
 export const requestAnalysis = (id: string) =>
   json<{ job_id: number }>(`/api/track/${id}/analyze`, { method: "POST" });
+
+export type StemState =
+  | "none" | "pending" | "running" | "done" | "failed" | "unavailable";
+
+export type StemStatus = {
+  status: StemState;
+  error: string | null;
+  available: string[];
+};
+
+export const getStems = (id: string) =>
+  json<StemStatus>(`/api/track/${id}/stems`);
+
+export const requestStems = (id: string) =>
+  json<{ job_id: number; status: string }>(
+    `/api/track/${id}/stems`, { method: "POST" });
+
+export const stemUrl = (id: string, stem: string) =>
+  `/api/track/${id}/stems/${stem}`;
