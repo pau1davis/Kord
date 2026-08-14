@@ -424,3 +424,71 @@ def test_audio_endpoint_serves_webm_as_audio_not_video(tmp_path, monkeypatch):
     client = TestClient(create_app(settings, FakeSpotify(), conn))
     response = client.get("/api/track/t1/audio")
     assert response.headers["content-type"] == "audio/webm"
+
+
+def test_requesting_stems_enqueues_a_job(client):
+    c, conn = client
+    body = c.post("/api/track/t1/stems").json()
+    assert body["status"] == "pending"
+    assert db.stem_job_for(conn, "t1")["state"] == "pending"
+
+
+def test_requesting_stems_twice_is_idempotent(client):
+    c, _ = client
+    first = c.post("/api/track/t1/stems").json()["job_id"]
+    assert c.post("/api/track/t1/stems").json()["job_id"] == first
+
+
+def test_stem_status_lists_available_stems(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+
+    settings = settings_for(tmp_path)
+    (settings.stems_dir / "t1").mkdir(parents=True, exist_ok=True)
+    (settings.stems_dir / "t1" / "guitar.m4a").write_bytes(b"x")
+    db.enqueue_stem_job(conn, "t1")
+    db.finish_stem_job(conn, db.stem_job_for(conn, "t1")["id"], "done")
+
+    c = TestClient(create_app(settings, FakeSpotify(), conn))
+    body = c.get("/api/track/t1/stems").json()
+    assert body["status"] == "done"
+    assert "guitar" in body["available"]
+
+
+def test_stem_status_is_none_before_anything_is_requested(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    body = c.get("/api/track/t1/stems").json()
+    assert body["status"] == "none"
+    assert body["available"] == []
+
+
+def test_stem_file_is_served_as_audio_mp4(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+
+    settings = settings_for(tmp_path)
+    (settings.stems_dir / "t1").mkdir(parents=True, exist_ok=True)
+    (settings.stems_dir / "t1" / "guitar.m4a").write_bytes(b"0123456789")
+
+    c = TestClient(create_app(settings, FakeSpotify(), conn))
+    response = c.get("/api/track/t1/stems/guitar")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/mp4"
+    assert response.content == b"0123456789"
+
+
+def test_unknown_stem_name_404s(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    assert c.get("/api/track/t1/stems/trombone").status_code == 404

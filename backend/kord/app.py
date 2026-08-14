@@ -9,6 +9,8 @@ from fastapi.responses import (
 )
 
 from kord import db
+from kord.audio.stem_store import StemStore
+from kord.audio.stems import STEM_NAMES
 from kord.audio.store import AudioStore
 from kord.config import Settings
 from kord.engine import resolve_engine_version
@@ -265,6 +267,31 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
             media_type=AUDIO_MEDIA_TYPES.get(
                 path.suffix.lower(), "application/octet-stream"),
         )
+
+    @app.post("/api/track/{track_id}/stems")
+    async def request_stems(track_id: str):
+        return {"job_id": db.enqueue_stem_job(conn, track_id), "status": "pending"}
+
+    @app.get("/api/track/{track_id}/stems")
+    async def stem_status(track_id: str):
+        store = StemStore(settings.stems_dir)
+        job = db.stem_job_for(conn, track_id)
+        available = [
+            name for name in STEM_NAMES
+            if store.path_for(track_id, name) is not None
+        ]
+        return {
+            "status": job["state"] if job else "none",
+            "error": job["error"] if job else None,
+            "available": available,
+        }
+
+    @app.get("/api/track/{track_id}/stems/{stem}")
+    async def stem_file(track_id: str, stem: str):
+        path = StemStore(settings.stems_dir).path_for(track_id, stem)
+        if path is None:
+            raise HTTPException(status_code=404, detail="stem not available")
+        return FileResponse(path, media_type=AUDIO_MEDIA_TYPES[".m4a"])
 
     @app.get("/api/track/{track_id}/events")
     async def events(track_id: str):
