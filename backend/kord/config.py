@@ -16,6 +16,7 @@ class Settings:
     ui_url: str
     audio_dir: Path
     audio_cap_bytes: int
+    stems_dir: Path
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -31,6 +32,10 @@ class Settings:
         # of scope; Phase 2 plays what it analysed, so it is kept and capped.
         audio = root / "audio"
         audio.mkdir(exist_ok=True)
+        # Separated stems, one directory per song. Only ever written on
+        # explicit request, so this stays empty for most installs.
+        stems = root / "stems"
+        stems.mkdir(exist_ok=True)
         cap_gb = float(os.environ.get("KORD_AUDIO_CAP_GB", "2"))
         return cls(
             spotify_client_id=os.environ.get("SPOTIFY_CLIENT_ID", ""),
@@ -48,4 +53,5 @@ class Settings:
             ui_url=os.environ.get("KORD_UI_URL", "http://127.0.0.1:5173"),
             audio_dir=audio,
             audio_cap_bytes=int(cap_gb * 1024 ** 3),
+            stems_dir=stems,
         )

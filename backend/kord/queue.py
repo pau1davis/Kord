@@ -78,16 +78,60 @@ def run_one_job(conn, pipeline) -> str | None:
     return "done"
 
 
-def worker_loop(conn, pipeline, poll_seconds: float = 2.0) -> None:
+def run_one_stem_job(conn, separator, audio_store, stem_store) -> str | None:
+    """Separate one queued song. Returns the finished state, or None if idle.
+
+    Separation is a convenience: a failure here records itself and leaves the
+    song's analysis and playback completely untouched.
+    """
+    job = db.claim_stem_job(conn)
+    if job is None:
+        return None
+
+    spotify_id = job["spotify_id"]
+    source = audio_store.path_for(spotify_id)
+    if source is None:
+        db.finish_stem_job(
+            conn, job["id"], "unavailable",
+            "no retained audio to separate; re-analyse the song first")
+        return "unavailable"
+
+    try:
+        separator.separate(source, stem_store.dir_for(spotify_id))
+    except Exception as exc:
+        # Never leave a half-written set behind: a partial directory would
+        # report as "has stems" and play back missing parts.
+        stem_store.remove(spotify_id)
+        log.warning("stem separation failed for %s", spotify_id, exc_info=True)
+        db.finish_stem_job(
+            conn, job["id"], "failed", f"{type(exc).__name__}: {exc}")
+        return "failed"
+
+    db.finish_stem_job(conn, job["id"], "done")
+    return "done"
+
+
+def worker_loop(
+    conn, pipeline, separator=None, stem_store=None, poll_seconds: float = 2.0
+) -> None:
     log.info("kord worker started")
     while True:
-        if run_one_job(conn, pipeline) is None:
+        # Analysis first: it is what makes a song usable at all, while stems
+        # are an extra on top of a song that already works.
+        did_work = run_one_job(conn, pipeline) is not None
+        if separator is not None and stem_store is not None:
+            did_work = run_one_stem_job(
+                conn, separator, pipeline.audio_store, stem_store
+            ) is not None or did_work
+        if not did_work:
             time.sleep(poll_seconds)
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     from kord.analysis.pipeline import AnalysisPipeline
+    from kord.audio.stem_store import StemStore
+    from kord.audio.stems import DemucsSeparator
     from kord.audio.store import AudioStore
     from kord.audio.youtube import YouTubeAudioSource
     from kord.config import Settings
@@ -104,7 +148,13 @@ def main() -> None:
         engine_version=engine_version,
         audio_store=AudioStore(settings.audio_dir, settings.audio_cap_bytes),
     )
-    worker_loop(conn, pipeline)
+    # The separator loads its weights lazily, so a worker that is never asked
+    # to separate anything pays nothing for this.
+    worker_loop(
+        conn, pipeline,
+        separator=DemucsSeparator(),
+        stem_store=StemStore(settings.stems_dir),
+    )
 
 
 if __name__ == "__main__":

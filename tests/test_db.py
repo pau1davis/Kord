@@ -177,3 +177,36 @@ def test_migrates_a_legacy_auth_table_with_not_null_refresh_token():
     session = db.load_session(c)
     assert session["access_token"] == "at"
     assert session["refresh_token"] == "legacy"
+
+
+def test_stem_jobs_are_claimed_once_each():
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    job_id = db.enqueue_stem_job(conn, "t1")
+
+    first = db.claim_stem_job(conn)
+    assert first["id"] == job_id
+    assert db.claim_stem_job(conn) is None, "a claimed job must not be reclaimed"
+
+    db.finish_stem_job(conn, job_id, "done")
+    assert db.stem_job_for(conn, "t1")["state"] == "done"
+
+
+def test_enqueueing_stems_twice_reuses_the_pending_job():
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    assert db.enqueue_stem_job(conn, "t1") == db.enqueue_stem_job(conn, "t1")
+
+
+def test_a_failed_stem_job_records_its_reason():
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    job_id = db.enqueue_stem_job(conn, "t1")
+    db.claim_stem_job(conn)
+    db.finish_stem_job(conn, job_id, "failed", "model exploded")
+    row = db.stem_job_for(conn, "t1")
+    assert row["state"] == "failed"
+    assert "exploded" in row["error"]

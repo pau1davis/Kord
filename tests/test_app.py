@@ -22,9 +22,11 @@ def settings_for(tmp_path):
     models.mkdir(exist_ok=True)
     audio = tmp_path / "audio"
     audio.mkdir(exist_ok=True)
+    stems = tmp_path / "stems"
+    stems.mkdir(exist_ok=True)
     return Settings("cid", "http://127.0.0.1:8000/api/auth/callback",
                     tmp_path / "x.db", tmp_path, "chroma-1", models,
-                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3)
+                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3, stems)
 
 
 @pytest.fixture

@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS auth (
     scopes        TEXT,
     obtained_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS stem_job (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    spotify_id TEXT NOT NULL,
+    state      TEXT NOT NULL DEFAULT 'pending',
+    error      TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS stem_job_state_idx ON stem_job(state);
 """
 
 # Columns added after the first release; ALTER is idempotent-checked below.
@@ -254,3 +263,45 @@ def audio_tracks_by_least_recently_played(conn) -> list[sqlite3.Row]:
            WHERE audio_ext IS NOT NULL
            ORDER BY last_played_at IS NOT NULL, last_played_at ASC, spotify_id"""
     ))
+
+
+def enqueue_stem_job(conn, spotify_id: str) -> int:
+    """Queue separation, reusing any job that has not finished yet."""
+    row = conn.execute(
+        "SELECT id FROM stem_job WHERE spotify_id=? AND state IN "
+        "('pending','running') ORDER BY id DESC LIMIT 1",
+        (spotify_id,),
+    ).fetchone()
+    if row is not None:
+        return row["id"]
+    cursor = conn.execute(
+        "INSERT INTO stem_job (spotify_id) VALUES (?)", (spotify_id,))
+    conn.commit()
+    return cursor.lastrowid
+
+
+def claim_stem_job(conn):
+    row = conn.execute(
+        "SELECT * FROM stem_job WHERE state='pending' ORDER BY id LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return None
+    conn.execute(
+        "UPDATE stem_job SET state='running', updated_at=datetime('now') "
+        "WHERE id=?", (row["id"],))
+    conn.commit()
+    return row
+
+
+def finish_stem_job(conn, job_id: int, state: str, error: str | None = None) -> None:
+    conn.execute(
+        "UPDATE stem_job SET state=?, error=?, updated_at=datetime('now') "
+        "WHERE id=?", (state, error, job_id))
+    conn.commit()
+
+
+def stem_job_for(conn, spotify_id: str):
+    return conn.execute(
+        "SELECT * FROM stem_job WHERE spotify_id=? ORDER BY id DESC LIMIT 1",
+        (spotify_id,),
+    ).fetchone()

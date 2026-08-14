@@ -196,3 +196,84 @@ def test_no_audio_store_on_pipeline_means_no_bookkeeping(conn):
     assert run_one_job(conn, OkPipeline()) == "done"
     row = conn.execute("SELECT audio_ext FROM track WHERE spotify_id='t1'").fetchone()
     assert row["audio_ext"] is None
+
+
+class FakeSeparator:
+    """Writes a byte per stem. Demucs itself is never invoked in tests."""
+
+    def __init__(self, explode=False):
+        self.explode = explode
+        self.calls = []
+
+    def separate(self, source, dest_dir):
+        self.calls.append(source)
+        if self.explode:
+            raise RuntimeError("model exploded")
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        written = {}
+        for name in ("drums", "bass", "other", "vocals", "guitar", "piano"):
+            p = dest_dir / f"{name}.m4a"
+            p.write_bytes(b"x")
+            written[name] = p
+        return written
+
+
+def _audio_store_with_song(tmp_path, conn):
+    from kord.audio.store import AudioStore
+
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir(exist_ok=True)
+    (audio_dir / "t1.m4a").write_bytes(b"song")
+    db.set_audio_ext(conn, "t1", ".m4a")
+    return AudioStore(audio_dir, 10 * 1024 ** 3)
+
+
+def test_stem_job_writes_every_stem(conn, tmp_path):
+    from kord.audio.stem_store import StemStore
+    from kord.queue import run_one_stem_job
+
+    store = _audio_store_with_song(tmp_path, conn)
+    stems = StemStore(tmp_path / "stems")
+    db.enqueue_stem_job(conn, "t1")
+
+    assert run_one_stem_job(conn, FakeSeparator(), store, stems) == "done"
+    assert stems.has_stems("t1")
+    assert stems.path_for("t1", "guitar") is not None
+
+
+def test_stem_job_without_retained_audio_is_unavailable(conn, tmp_path):
+    from kord.audio.stem_store import StemStore
+    from kord.audio.store import AudioStore
+    from kord.queue import run_one_stem_job
+
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir(exist_ok=True)
+    db.enqueue_stem_job(conn, "t1")
+
+    state = run_one_stem_job(
+        conn, FakeSeparator(), AudioStore(audio_dir, 10 * 1024 ** 3),
+        StemStore(tmp_path / "stems"))
+    assert state == "unavailable"
+    assert "audio" in db.stem_job_for(conn, "t1")["error"]
+
+
+def test_a_failing_separator_records_the_failure(conn, tmp_path):
+    from kord.audio.stem_store import StemStore
+    from kord.queue import run_one_stem_job
+
+    store = _audio_store_with_song(tmp_path, conn)
+    db.enqueue_stem_job(conn, "t1")
+
+    state = run_one_stem_job(
+        conn, FakeSeparator(explode=True), store, StemStore(tmp_path / "stems"))
+    assert state == "failed"
+    assert "exploded" in db.stem_job_for(conn, "t1")["error"]
+
+
+def test_no_pending_stem_job_returns_none(conn, tmp_path):
+    from kord.audio.stem_store import StemStore
+    from kord.queue import run_one_stem_job
+
+    store = _audio_store_with_song(tmp_path, conn)
+    assert run_one_stem_job(
+        conn, FakeSeparator(), store, StemStore(tmp_path / "stems")) is None

@@ -16,9 +16,11 @@ def settings_for(tmp_path, engine_version="chroma-1") -> Settings:
     models.mkdir(exist_ok=True)
     audio = tmp_path / "audio"
     audio.mkdir(exist_ok=True)
+    stems = tmp_path / "stems"
+    stems.mkdir(exist_ok=True)
     return Settings("cid", "http://127.0.0.1:8000/api/auth/callback",
                     tmp_path / "k.db", tmp_path, engine_version, models,
-                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3)
+                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3, stems)
 
 
 def test_falls_back_to_chroma_without_weights(tmp_path, monkeypatch):
