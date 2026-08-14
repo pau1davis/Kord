@@ -33,7 +33,7 @@ function toMono(context: AudioContext, buffer: AudioBuffer): AudioBuffer {
 }
 
 export async function createStemPlayer(
-  trackId: string, names: string[],
+  trackId: string, names: string[], onEnded?: () => void,
 ): Promise<StemPlayer> {
   const context = new AudioContext();
   const buffers = new Map<string, AudioBuffer>();
@@ -52,6 +52,10 @@ export async function createStemPlayer(
   let sources: AudioBufferSourceNode[] = [];
   let startedAt: number | null = null;
   let offset = 0;
+  // Bumped on every start and stop. `stop()` schedules its ended event rather
+  // than firing it, so a seek — which pauses then plays — would otherwise have
+  // the old run's handler arrive after the new one started and kill it.
+  let run = 0;
 
   const stopSources = () => {
     for (const source of sources) {
@@ -74,6 +78,9 @@ export async function createStemPlayer(
     play(from) {
       if (startedAt !== null) return;
       if (from !== undefined) offset = from;
+      // Playing again after the end should start the song over, not start at
+      // the end and produce silence.
+      if (offset >= duration - 0.05) offset = 0;
       void context.resume();
       // One start time for every source, so they cannot drift apart.
       const at = context.currentTime + 0.05;
@@ -85,10 +92,22 @@ export async function createStemPlayer(
         return source;
       });
       startedAt = at;
+
+      // Web Audio fires nothing when playback simply runs out, so without this
+      // the transport stays stuck reading "Pause" over a finished song.
+      const thisRun = ++run;
+      sources[0].onended = () => {
+        if (thisRun !== run) return;  // superseded by a later play or pause
+        stopSources();
+        startedAt = null;
+        offset = duration;
+        onEnded?.();
+      };
     },
 
     pause() {
       if (startedAt === null) return;
+      run++;
       offset = player.elapsed();
       stopSources();
       startedAt = null;
@@ -111,6 +130,7 @@ export async function createStemPlayer(
     },
 
     destroy() {
+      run++;
       stopSources();
       void context.close();
     },

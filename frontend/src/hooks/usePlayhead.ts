@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Player } from "../player";
+import { snapshotOf, type Player } from "../player";
 
 /**
  * The current audio position, sampled once per frame.
@@ -13,6 +13,14 @@ export function usePlayhead(player: Player | null) {
   const [duration, setDuration] = useState(0);
 
   useEffect(() => {
+    // This hook's state still describes the previous song until something says
+    // otherwise, and swapping the player fires no events — so seed from the new
+    // element first, or the transport shows "Pause" over a stopped song.
+    const initial = snapshotOf(player?.el ?? null);
+    setCurrentTime(initial.currentTime);
+    setPlaying(initial.playing);
+    setDuration(initial.duration);
+
     if (!player) return;
     const { el } = player;
     let frame = 0;

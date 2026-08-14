@@ -69,7 +69,8 @@ export function StemMixer({
   };
 
   async function load() {
-    const created = await createStemPlayer(trackId, available);
+    const created = await createStemPlayer(
+      trackId, available, () => setPlaying(false));
     playerRef.current = created;
     setPlayer(created);
     onActiveChange(true);

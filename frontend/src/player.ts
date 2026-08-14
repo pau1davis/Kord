@@ -60,3 +60,30 @@ export function createPlayer(trackId: string): Player {
 
   return { el, ...createControls(el) };
 }
+
+/** What the transport should show for a given element. */
+export type PlaybackSnapshot = {
+  currentTime: number;
+  playing: boolean;
+  duration: number;
+};
+
+/**
+ * Read the truth off the element rather than remembering it.
+ *
+ * usePlayhead's state belongs to whichever song was last loaded, and nothing
+ * fires when the player is swapped — so a song replaced mid-playback left the
+ * transport reading "Pause" over a song that was not playing. Seeding from the
+ * new element on every swap is what keeps the two in step.
+ */
+export function snapshotOf(
+  el: Pick<HTMLAudioElement, "currentTime" | "paused" | "duration"> | null,
+): PlaybackSnapshot {
+  if (el === null) return { currentTime: 0, playing: false, duration: 0 };
+  return {
+    currentTime: el.currentTime,
+    playing: !el.paused,
+    // duration is NaN until metadata arrives, which would render as "NaN".
+    duration: Number.isFinite(el.duration) ? el.duration : 0,
+  };
+}
