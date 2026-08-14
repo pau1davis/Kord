@@ -5,6 +5,7 @@ import { usePlayhead } from "./hooks/usePlayhead";
 import { createPlayer, type Player } from "./player";
 import { AnalysisProgress } from "./components/AnalysisProgress";
 import { ChordSheet } from "./components/ChordSheet";
+import { Home } from "./components/Home";
 import { MoodRing } from "./components/MoodRing";
 import { PlayAlong } from "./components/PlayAlong";
 import { SearchBar } from "./components/SearchBar";
@@ -99,21 +100,17 @@ export default function App() {
   return (
     <>
       <div className="masthead">
-        <h1 className="wordmark">
+        <button
+          className="wordmark"
+          onClick={() => setPicked(null)}
+          title="Back to your music"
+        >
           Kord<span>.</span>
-        </h1>
+        </button>
         <SearchBar onPick={setPicked} />
       </div>
 
-      {!picked && (
-        <div className="empty">
-          <h2>See what a song is made of.</h2>
-          <p>
-            Search anything in your Spotify library. Kord works out the chords, the key
-            and the scales that fit over it — then colours the page by the harmony.
-          </p>
-        </div>
-      )}
+      {!picked && <Home onPick={setPicked} />}
 
       {track && (
         <main>

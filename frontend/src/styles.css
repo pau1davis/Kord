@@ -72,6 +72,11 @@ body {
   letter-spacing: -0.03em;
   margin: 0;
   flex-shrink: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
 }
 
 .wordmark span { color: var(--brass); }
@@ -513,3 +518,57 @@ body {
   font: 500 0.7rem var(--mono); cursor: pointer;
 }
 .mixer .tog.on { border-color: var(--brass); color: var(--brass); }
+
+/* ── Home ─────────────────────────────────────────────────── */
+
+.home { position: relative; z-index: 1; padding: var(--gutter) 0; width: 100%; }
+.home-copy { position: relative; z-index: 2; }
+.home-copy h2 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(1.6rem, 4vw, 2.6rem); letter-spacing: -0.035em;
+  margin: 0.25rem 0 0.5rem;
+}
+.home .hint { color: var(--text-dim); font: 400 0.82rem var(--mono); margin: 0; }
+
+.orbit { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.orbit img {
+  position: absolute; top: 50%; left: 50%;
+  width: 62px; height: 62px; border-radius: 8px; opacity: 0.5;
+  animation: kord-orbit 90s linear infinite;
+  animation-delay: var(--delay);
+}
+
+/* Rotating out to the radius and counter-rotating by the same amount keeps
+   each cover upright while it travels the circle. */
+@keyframes kord-orbit {
+  from {
+    transform: rotate(var(--angle)) translateX(var(--radius))
+               rotate(calc(-1 * var(--angle)));
+  }
+  to {
+    transform: rotate(calc(var(--angle) + 360deg)) translateX(var(--radius))
+               rotate(calc(-1 * var(--angle) - 360deg));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit img {
+    animation: none;
+    transform: rotate(var(--angle)) translateX(var(--radius))
+               rotate(calc(-1 * var(--angle)));
+  }
+}
+
+.toplist {
+  position: relative; z-index: 2; list-style: none; margin: 1.5rem 0 0;
+  padding: 0; display: grid; gap: 0.15rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+.toplist button {
+  display: grid; width: 100%; text-align: left; background: none;
+  border: 0; border-radius: 6px; padding: 0.4rem 0.6rem; cursor: pointer;
+  color: inherit;
+}
+.toplist button:hover { background: color-mix(in srgb, var(--ink-raised) 80%, transparent); }
+.toplist .title { font-weight: 500; }
+.toplist .artist { color: var(--text-dim); font-size: 0.85rem; }

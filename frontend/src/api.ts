@@ -101,3 +101,15 @@ export const requestStems = (id: string) =>
 
 export const stemUrl = (id: string, stem: string) =>
   `/api/track/${id}/stems/${stem}`;
+
+export type Taste = {
+  palette: PaletteStop[];
+  analyzed: number;
+  total: number;
+};
+
+export const getTopTracks = () => json<TrackSummary[]>("/api/me/top");
+export const getTaste = () => json<Taste>("/api/me/taste");
+export const analyzeTop = () =>
+  json<{ queued: number; total: number }>(
+    "/api/me/top/analyze", { method: "POST" });
