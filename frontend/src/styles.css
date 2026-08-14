@@ -163,6 +163,9 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+/* The song view sits its card at the bottom; the home screen centres its ring. */
+.mood-field:has(.home) { align-items: center; }
+
 .mood-field .blob {
   position: absolute;
   border-radius: 50%;
@@ -183,27 +186,6 @@ body {
   50%  { transform: translate(4vw, -3vh) scale(1.18); }
   100% { transform: translate(-3vw, 2vh) scale(0.92); }
 }
-
-.now { position: relative; z-index: 1; }
-
-.now .eyebrow {
-  font: 500 0.7rem var(--mono);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin: 0 0 0.5rem;
-}
-
-.now h2 {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: clamp(1.8rem, 5vw, 3.2rem);
-  letter-spacing: -0.035em;
-  line-height: 1.05;
-  margin: 0;
-}
-
-.now .artist { color: var(--text-dim); margin: 0.25rem 0 0; }
 
 .facts {
   display: flex;
@@ -521,54 +503,140 @@ body {
 
 /* ── Home ─────────────────────────────────────────────────── */
 
-.home { position: relative; z-index: 1; padding: var(--gutter) 0; width: 100%; }
-.home-copy { position: relative; z-index: 2; }
+/* The copy sits at the centre and the records orbit around it. */
+.home {
+  position: relative; width: 100%;
+  min-height: clamp(440px, 66vmin, 720px);
+  display: grid; place-items: center;
+  padding: var(--gutter) 0;
+}
+
+.home-copy { position: relative; z-index: 2; text-align: center; max-width: 34ch; }
+.home-copy .eyebrow {
+  font: 500 0.7rem var(--mono); letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--text-dim); margin: 0;
+}
 .home-copy h2 {
   font-family: var(--display); font-weight: 800;
-  font-size: clamp(1.6rem, 4vw, 2.6rem); letter-spacing: -0.035em;
-  margin: 0.25rem 0 0.5rem;
+  font-size: clamp(1.5rem, 3.6vw, 2.4rem); letter-spacing: -0.035em;
+  line-height: 1.05; margin: 0.4rem 0 0.5rem;
 }
-.home .hint { color: var(--text-dim); font: 400 0.82rem var(--mono); margin: 0; }
+.home .hint { color: var(--text-dim); font: 400 0.78rem var(--mono); margin: 0; }
 
-.orbit { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.orbit img {
-  position: absolute; top: 50%; left: 50%;
-  width: 62px; height: 62px; border-radius: 8px; opacity: 0.5;
-  animation: kord-orbit 90s linear infinite;
-  animation-delay: var(--delay);
+/* Each item is a zero-size pivot at the centre; the card hangs off it at
+   --radius. The radius must be a length: a percentage in translate resolves
+   against the element's own box, which bunches every sleeve at the centre. */
+.orbit { position: absolute; inset: 0; z-index: 1; }
+.orbit-item {
+  position: absolute; top: 50%; left: 50%; width: 0; height: 0;
+  animation: kord-orbit 150s linear infinite;
 }
 
-/* Rotating out to the radius and counter-rotating by the same amount keeps
-   each cover upright while it travels the circle. */
+/* The pivot turns and the card turns back by the same amount, so the sleeves
+   travel the circle without ever tipping over. Same duration, both linear. */
 @keyframes kord-orbit {
+  from { transform: rotate(var(--angle)); }
+  to   { transform: rotate(calc(var(--angle) + 360deg)); }
+}
+@keyframes kord-upright {
   from {
-    transform: rotate(var(--angle)) translateX(var(--radius))
+    transform: translate(-50%, -50%) translateY(calc(-1 * var(--radius)))
                rotate(calc(-1 * var(--angle)));
   }
   to {
-    transform: rotate(calc(var(--angle) + 360deg)) translateX(var(--radius))
+    transform: translate(-50%, -50%) translateY(calc(-1 * var(--radius)))
                rotate(calc(-1 * var(--angle) - 360deg));
   }
 }
 
+.sleevecard {
+  position: absolute;
+  animation: kord-upright 150s linear infinite;
+  display: grid; grid-template-columns: auto 1fr; gap: 0.6rem;
+  align-items: center; width: max-content; max-width: 15rem;
+  padding: 0.45rem 0.7rem 0.45rem 0.45rem;
+  background: color-mix(in srgb, var(--ink-raised) 82%, transparent);
+  border: 1px solid var(--line); border-radius: 10px;
+  backdrop-filter: blur(8px);
+  color: inherit; text-align: left; cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.sleevecard:hover { border-color: var(--brass); }
+.sleevecard img, .sleevecard .no-art {
+  width: 44px; height: 44px; border-radius: 5px; display: block;
+}
+.sleevecard .no-art { background: var(--line); }
+.sleevecard .text { display: grid; min-width: 0; }
+.sleevecard .title {
+  font: 500 0.8rem var(--body); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sleevecard .artist {
+  font: 400 0.72rem var(--mono); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .sleevecard { max-width: 11rem; padding: 0.35rem 0.5rem 0.35rem 0.35rem; }
+  .sleevecard img, .sleevecard .no-art { width: 34px; height: 34px; }
+}
+
+/* Stopped, the ring is still a ring — the sleeves just hold their positions. */
 @media (prefers-reduced-motion: reduce) {
-  .orbit img {
+  .orbit-item { animation: none; transform: rotate(var(--angle)); }
+  .sleevecard {
     animation: none;
-    transform: rotate(var(--angle)) translateX(var(--radius))
+    transform: translate(-50%, -50%) translateY(calc(-1 * var(--radius)))
                rotate(calc(-1 * var(--angle)));
   }
 }
 
-.toplist {
-  position: relative; z-index: 2; list-style: none; margin: 1.5rem 0 0;
-  padding: 0; display: grid; gap: 0.15rem;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+/* ── Now playing ──────────────────────────────────────────── */
+
+.nowcard {
+  position: relative; z-index: 1;
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  gap: clamp(0.9rem, 2.5vw, 1.6rem); align-items: center;
+  padding: clamp(0.8rem, 2vw, 1.1rem);
+  background: color-mix(in srgb, var(--ink-raised) 84%, transparent);
+  border: 1px solid var(--line); border-radius: 14px;
+  backdrop-filter: blur(10px);
+  max-width: 44rem;
 }
-.toplist button {
-  display: grid; width: 100%; text-align: left; background: none;
-  border: 0; border-radius: 6px; padding: 0.4rem 0.6rem; cursor: pointer;
-  color: inherit;
+
+.nowcard .sleeve {
+  width: clamp(84px, 18vw, 148px); height: clamp(84px, 18vw, 148px);
+  border-radius: 8px; display: block; object-fit: cover;
 }
-.toplist button:hover { background: color-mix(in srgb, var(--ink-raised) 80%, transparent); }
-.toplist .title { font-weight: 500; }
-.toplist .artist { color: var(--text-dim); font-size: 0.85rem; }
+.nowcard .sleeve.no-art { background: var(--line); }
+
+.nowmeta { min-width: 0; }
+.nowmeta h2 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(1.3rem, 3.4vw, 2.1rem); letter-spacing: -0.035em;
+  line-height: 1.05; margin: 0;
+}
+.nowmeta .artist { color: var(--text-dim); margin: 0.2rem 0 0; }
+.nowmeta .facts {
+  display: flex; flex-wrap: wrap; gap: 0.3rem 1rem;
+  margin: 0.7rem 0 0; padding: 0; list-style: none;
+  font: 400 0.8rem var(--mono); color: var(--text-dim);
+}
+.nowmeta .facts b { color: var(--text); font-weight: 500; }
+
+.nowcard .transport {
+  display: flex; align-items: center; gap: 0.5rem;
+  flex-wrap: wrap; margin-top: 0.9rem;
+}
+.nowcard .skip {
+  background: none; border: 1px solid var(--line); color: var(--text-dim);
+  border-radius: 999px; padding: 0.4rem 0.6rem;
+  font: 500 0.75rem var(--mono); cursor: pointer;
+}
+.nowcard .skip:hover { border-color: var(--brass); color: var(--brass); }
+.nowcard .rates { margin-left: auto; }
+
+@media (max-width: 560px) {
+  .nowcard { grid-template-columns: minmax(0, 1fr); }
+  .nowcard .rates { margin-left: 0; }
+}

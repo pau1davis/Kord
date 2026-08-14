@@ -1,32 +1,22 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { ChartEntry } from "../api";
 import { chartTime, collapseShortSegments, findChordIndexAt } from "../chart";
-import type { Player } from "../player";
 import { BeatStrip } from "./BeatStrip";
 
 const HERO_MIN_SECONDS = 0.4;
-const RATES = [0.5, 0.75, 1];
 
 export function PlayAlong({
-  player, chart, syncOffsetMs, beats, currentTime, playing,
+  chart, syncOffsetMs, beats, currentTime,
 }: {
-  player: Player;
   chart: ChartEntry[];
   syncOffsetMs: number;
   beats: number[];
   currentTime: number;
-  playing: boolean;
 }) {
   // The playhead is owned by App and passed down, so the song map and the hero
   // chord advance from the same frame. Owning it here would leave SongMap frozen.
   const display = useMemo(
     () => collapseShortSegments(chart, HERO_MIN_SECONDS), [chart]);
-
-  // Display-only: the source of truth for playback rate is player.el.playbackRate,
-  // set via player.setRate(). This state exists purely so the active-button
-  // highlight updates on click even while paused, when currentTime doesn't change
-  // and usePlayhead (owned by App) wouldn't otherwise trigger a re-render here.
-  const [selectedRate, setSelectedRate] = useState(player.el.playbackRate);
 
   const now = chartTime(currentTime, syncOffsetMs);
   const index = findChordIndexAt(display, now);
@@ -57,25 +47,6 @@ export function PlayAlong({
 
       <BeatStrip beats={beats} now={now} />
 
-      <div className="transport">
-        <button className="playbtn" onClick={() => player.toggle()}>
-          {playing ? "Pause" : "Play"}
-        </button>
-        <div className="rates">
-          {RATES.map((rate) => (
-            <button
-              key={rate}
-              onClick={() => {
-                player.setRate(rate);
-                setSelectedRate(rate);
-              }}
-              className={selectedRate === rate ? "on" : undefined}
-            >
-              {rate}×
-            </button>
-          ))}
-        </div>
-      </div>
     </section>
   );
 }

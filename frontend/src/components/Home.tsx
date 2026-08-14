@@ -5,15 +5,24 @@ import {
 } from "../api";
 import { MoodRing } from "./MoodRing";
 
-/** Art orbits on a circle; index decides where each one sits on it. */
+/** How many sleeves ride the ring. More than this is noise, not a home screen. */
+const ON_THE_RING = 12;
+
+/**
+ * Place one sleeve on the circle.
+ *
+ * The radius is a length, not a percentage: a percentage in `translate`
+ * resolves against the element's own box, which would bunch every sleeve a few
+ * pixels from the centre rather than spreading them around the ring.
+ */
 function orbitStyle(index: number, count: number): React.CSSProperties {
   const angle = (index / Math.max(1, count)) * 360;
-  // Two rings so a couple of dozen covers don't crowd a single circle.
-  const radius = index % 2 === 0 ? 38 : 26;
   return {
     ["--angle" as string]: `${angle}deg`,
-    ["--radius" as string]: `${radius}%`,
-    ["--delay" as string]: `${(index % 7) * -4}s`,
+    // Alternating rings so twelve sleeves don't collide on one circle.
+    ["--radius" as string]: index % 2 === 0
+      ? "clamp(140px, 30vmin, 300px)"
+      : "clamp(88px, 19vmin, 195px)",
   };
 }
 
@@ -28,7 +37,8 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
     getTopTracks()
       .then((list) => { if (live) setTracks(list); })
       .catch(() => { if (live) setFailed(true); });
-    // Queue whatever has not been analysed. Safe to call repeatedly.
+    // Queue whatever has not been analysed. Safe to call repeatedly, and it
+    // retries anything that failed to download last time.
     analyzeTop().catch(() => {});
     return () => { live = false; };
   }, []);
@@ -60,19 +70,30 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
     );
   }
 
+  const ring = tracks.slice(0, ON_THE_RING);
+
   return (
     <MoodRing stops={taste?.palette ?? []}>
       <div className="home">
-        <div className="orbit" aria-hidden="true">
-          {tracks.slice(0, 24).map((track, index) => (
-            track.image ? (
-              <img
-                key={track.id}
-                src={track.image}
-                alt=""
-                style={orbitStyle(index, Math.min(tracks.length, 24))}
-              />
-            ) : null
+        <div className="orbit">
+          {ring.map((track, index) => (
+            <div
+              key={track.id}
+              className="orbit-item"
+              style={orbitStyle(index, ring.length)}
+            >
+              <button className="sleevecard" onClick={() => onPick(track)}>
+                {track.image ? (
+                  <img src={track.image} alt="" />
+                ) : (
+                  <span className="no-art" aria-hidden="true" />
+                )}
+                <span className="text">
+                  <span className="title">{track.title}</span>
+                  <span className="artist">{track.artist}</span>
+                </span>
+              </button>
+            </div>
           ))}
         </div>
 
@@ -86,17 +107,6 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
             </p>
           )}
         </div>
-
-        <ul className="toplist">
-          {tracks.slice(0, 12).map((track) => (
-            <li key={track.id}>
-              <button onClick={() => onPick(track)}>
-                <span className="title">{track.title}</span>
-                <span className="artist">{track.artist}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
       </div>
     </MoodRing>
   );

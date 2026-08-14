@@ -7,6 +7,7 @@ import { AnalysisProgress } from "./components/AnalysisProgress";
 import { ChordSheet } from "./components/ChordSheet";
 import { Home } from "./components/Home";
 import { MoodRing } from "./components/MoodRing";
+import { NowPlaying } from "./components/NowPlaying";
 import { PlayAlong } from "./components/PlayAlong";
 import { SearchBar } from "./components/SearchBar";
 import { SongMap } from "./components/SongMap";
@@ -115,24 +116,14 @@ export default function App() {
       {track && (
         <main>
           <MoodRing stops={data?.palette ?? []}>
-            <div className="now">
-              <p className="eyebrow">Now showing</p>
-              <h2>{track.title}</h2>
-              <p className="artist">{track.artist}</p>
-              {data?.status === "done" && data.theory && (
-                <ul className="facts">
-                  <li>
-                    Key <b>{data.theory.key}</b>
-                  </li>
-                  <li>
-                    Tempo <b>{Math.round(data.theory.tempo)}</b> BPM
-                  </li>
-                  <li>
-                    <b>{data.chart?.length ?? 0}</b> chords
-                  </li>
-                </ul>
-              )}
-            </div>
+            <NowPlaying
+              track={track}
+              theory={data?.status === "done" ? data.theory : undefined}
+              chordCount={data?.chart?.length ?? 0}
+              player={player}
+              playing={playing}
+              currentTime={currentTime}
+            />
           </MoodRing>
 
           {data && data.status !== "done" && (
@@ -143,12 +134,10 @@ export default function App() {
             <>
               {player && (
                 <PlayAlong
-                  player={player}
                   chart={data.chart}
                   syncOffsetMs={data.sync_offset_ms ?? 0}
                   beats={data.beats ?? []}
                   currentTime={currentTime}
-                  playing={playing}
                 />
               )}
               {!data.has_audio && (
