@@ -547,9 +547,8 @@ body {
 
 .home-copy {
   position: relative; z-index: 2; text-align: center;
-  max-width: 24ch; display: grid; justify-items: center;
+  display: grid; justify-items: center; gap: 0.8rem;
 }
-.home-copy .strings { width: 74px; margin-bottom: 0.9rem; }
 .home-copy .eyebrow {
   font: 500 0.68rem var(--mono); letter-spacing: 0.22em;
   text-transform: uppercase; color: var(--text-dim); margin: 0;
@@ -687,4 +686,84 @@ body {
 @media (max-width: 560px) {
   .nowcard { grid-template-columns: minmax(0, 1fr); }
   .nowcard .rates { margin-left: 0; }
+}
+
+/* ── Workbench: what you were doing, at the centre of the ring ── */
+
+.bench {
+  display: grid; justify-items: center; gap: 0.15rem;
+  padding: 1.1rem 1.4rem 1.2rem;
+  background: color-mix(in srgb, var(--ink) 62%, transparent);
+  border: 1px solid var(--line); border-radius: 14px;
+  backdrop-filter: blur(14px);
+  min-width: min(21rem, 82vw);
+}
+.bench .strings { width: 64px; margin-bottom: 0.7rem; }
+.bench .label {
+  font: 500 0.64rem var(--mono); letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--text-dim); margin: 0;
+}
+.bench .resume {
+  display: grid; justify-items: center; gap: 0.1rem;
+  background: none; border: 0; color: inherit; cursor: pointer;
+  padding: 0.35rem 0 0.1rem;
+}
+.bench .song {
+  font-family: var(--display); font-weight: 800;
+  font-variation-settings: "wdth" var(--display-wdth);
+  font-size: clamp(1.35rem, 3vw, 1.9rem); letter-spacing: -0.04em;
+  line-height: 1; color: var(--chalk);
+}
+.bench .resume:hover .song { color: var(--brass); }
+.bench .by { font: 400 0.85rem var(--body); color: var(--text-dim); }
+.bench .spec {
+  font: 400 0.74rem var(--mono); color: var(--brass);
+  font-variant-numeric: tabular-nums; margin: 0.15rem 0 0;
+}
+
+.bench .stats {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem 0.9rem; margin: 1rem 0 0; width: 100%;
+  padding-top: 0.85rem; border-top: 1px solid var(--line);
+}
+.bench .stats > div { display: grid; justify-items: center; gap: 0.1rem; }
+.bench .stats .wide { grid-column: span 4; }
+.bench .stats dt {
+  font: 500 0.58rem var(--mono); letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.bench .stats dd {
+  margin: 0; font: 500 0.95rem var(--mono); color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.bench .stats .wide dd { color: var(--brass); font-size: 0.85rem; }
+
+/* ── Shelf: rows of songs to pick up ──────────────────────── */
+
+.shelf { padding: calc(var(--gutter) * 1.1) var(--gutter); }
+.shelf-label {
+  font: 500 0.66rem var(--mono); letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--text-dim); margin: 0 0 0.9rem;
+}
+.shelf ul {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 0.9rem;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+}
+.shelf button {
+  display: grid; gap: 0.4rem; width: 100%; text-align: left;
+  background: none; border: 0; padding: 0; color: inherit; cursor: pointer;
+}
+.shelf img, .shelf .no-art {
+  width: 100%; aspect-ratio: 1; border-radius: 8px; display: block;
+  object-fit: cover; border: 1px solid var(--line);
+}
+.shelf .no-art { background: var(--ink-raised); }
+.shelf button:hover img { border-color: var(--brass); }
+.shelf .title {
+  font: 500 0.83rem var(--body); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.shelf .artist {
+  font: 400 0.72rem var(--mono); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }

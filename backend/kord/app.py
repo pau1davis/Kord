@@ -17,6 +17,7 @@ from kord.engine import resolve_engine_version
 from kord.models import Analysis
 from kord.spotify import SCOPES, SpotifyError, authorize_url, build_pkce_pair
 from kord.theory.palette import build_palette
+from kord.theory.library import summarise
 from kord.theory.taste import aggregate_palette
 from kord.theory.qualities import NO_CHORD, hue_for
 from kord.theory.roman import roman_numeral
@@ -231,6 +232,45 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
     @app.get("/api/me/top")
     async def me_top():
         return await spotify.top_tracks(await require_token())
+
+    @app.get("/api/me/recent")
+    async def me_recent():
+        """What you were just listening to on Spotify, ready to learn."""
+        return await spotify.recently_played(await require_token())
+
+    @app.get("/api/me/library")
+    async def me_library():
+        """Kord's own state: what you have analysed and what you were last on.
+
+        Deliberately local — no Spotify call, so the home screen has something
+        real to show even when the network or the token is having a bad day.
+        """
+        analyses = []
+        for row in conn.execute("SELECT spotify_id FROM analysis WHERE engine_version=?",
+                                (engine_version,)):
+            found = db.get_analysis(conn, row["spotify_id"], engine_version)
+            if found is not None:
+                analyses.append(found)
+
+        opened = db.recently_opened(conn, limit=1)
+        resume = None
+        if opened:
+            row = opened[0]
+            found = db.get_analysis(conn, row["spotify_id"], engine_version)
+            resume = {
+                "id": row["spotify_id"],
+                "title": row["title"],
+                "artist": row["artist"],
+                "key": scale_for(found.key.root, found.key.mode).name if found else None,
+                "tempo": round(found.tempo) if found else None,
+            }
+
+        summary = summarise(analyses)
+        summary["with_audio"] = db.count_tracks_with_audio(conn)
+        summary["with_stems"] = conn.execute(
+            "SELECT COUNT(*) c FROM stem_job WHERE state='done'").fetchone()["c"]
+        summary["resume"] = resume
+        return summary
 
     @app.get("/api/me/taste")
     async def me_taste():

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  analyzeTop, getTaste, getTopTracks,
-  type Taste, type TrackSummary,
+  analyzeTop, getLibrary, getRecent, getTaste, getTopTracks,
+  type Library, type Taste, type TrackSummary,
 } from "../api";
 import { MoodRing } from "./MoodRing";
+import { Workbench } from "./Workbench";
 
 /**
  * How many sleeves ride the ring.
@@ -33,6 +34,8 @@ function orbitStyle(index: number, count: number): React.CSSProperties {
 export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [taste, setTaste] = useState<Taste | null>(null);
+  const [library, setLibrary] = useState<Library | null>(null);
+  const [recent, setRecent] = useState<TrackSummary[]>([]);
   const [failed, setFailed] = useState(false);
 
   // Art first: this needs metadata only, so it is on screen immediately.
@@ -44,6 +47,9 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
     // Queue whatever has not been analysed. Safe to call repeatedly, and it
     // retries anything that failed to download last time.
     analyzeTop().catch(() => {});
+    // Local state, so it renders even if Spotify is unreachable.
+    getLibrary().then((l) => { if (live) setLibrary(l); }).catch(() => {});
+    getRecent().then((r) => { if (live) setRecent(r); }).catch(() => {});
     return () => { live = false; };
   }, []);
 
@@ -77,7 +83,8 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
   const ring = tracks.slice(0, ON_THE_RING);
 
   return (
-    <MoodRing stops={taste?.palette ?? []}>
+    <>
+      <MoodRing stops={taste?.palette ?? []}>
       <div className="home">
         <div className="orbit">
           {ring.map((track, index) => (
@@ -102,17 +109,36 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
         </div>
 
         <div className="home-copy">
-          <span className="strings" aria-hidden="true" />
-          <p className="eyebrow">Your music</p>
-          <h2>What you've been listening to.</h2>
+          <Workbench library={library} onResume={onPick} />
           {taste && taste.analyzed < taste.total && (
             <p className="hint">
               Working out the harmony — {taste.analyzed} of {taste.total} done.
-              The colour fills in as it goes.
             </p>
           )}
         </div>
       </div>
-    </MoodRing>
+      </MoodRing>
+
+      {recent.length > 0 && (
+        <section className="shelf">
+          <p className="shelf-label">Just played on Spotify</p>
+          <ul>
+            {recent.slice(0, 8).map((track) => (
+              <li key={track.id}>
+                <button onClick={() => onPick(track)}>
+                  {track.image ? (
+                    <img src={track.image} alt="" />
+                  ) : (
+                    <span className="no-art" aria-hidden="true" />
+                  )}
+                  <span className="title">{track.title}</span>
+                  <span className="artist">{track.artist}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
   );
 }

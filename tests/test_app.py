@@ -12,6 +12,11 @@ class FakeSpotify:
         return [{"id": "t1", "title": "Creep", "artist": "Radiohead",
                  "album": "Pablo Honey", "duration_ms": 238640, "image": None}]
 
+    async def recently_played(self, token, limit=20):
+        one = {"id": "t1", "title": "Creep", "artist": "Radiohead",
+               "album": "Pablo Honey", "duration_ms": 238640, "image": None}
+        return [one]
+
     async def top_tracks(self, token, limit=50, time_range="medium_term"):
         return [{"id": "t1", "title": "Creep", "artist": "Radiohead",
                  "album": "Pablo Honey", "duration_ms": 238640, "image": None}]
@@ -524,3 +529,28 @@ def test_analysing_top_tracks_twice_does_not_double_queue(client):
     c.post("/api/me/top/analyze")
     c.post("/api/me/top/analyze")
     assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 1
+
+
+def test_recently_played_is_deduplicated(client):
+    c, _ = client
+    body = c.get("/api/me/recent").json()
+    assert [t["id"] for t in body] == ["t1"], "the same song played twice is one row"
+
+
+def test_library_reports_local_state_without_calling_spotify(client):
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+    conn.execute("UPDATE track SET last_played_at='2026-08-14' WHERE spotify_id='t1'")
+    conn.commit()
+    body = c.get("/api/me/library").json()
+    assert body["analyzed"] == 1
+    assert body["resume"]["title"] == "Creep"
+    assert body["resume"]["key"].startswith("C")
+    assert body["keys"][0]["count"] == 1
+
+
+def test_library_without_history_has_nothing_to_resume(client):
+    c, _ = client
+    body = c.get("/api/me/library").json()
+    assert body["resume"] is None
+    assert body["analyzed"] == 0

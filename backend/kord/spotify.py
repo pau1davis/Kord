@@ -136,6 +136,29 @@ class SpotifyClient:
         _raise_for_spotify(response)
         return [self._track(item) for item in response.json()["items"]]
 
+    async def recently_played(self, access_token: str, limit: int = 20) -> list[dict]:
+        """Most recently played tracks, de-duplicated, newest first.
+
+        Spotify returns one entry per play, so the same song appears several
+        times over an evening; a list of six identical rows is not a shelf.
+        """
+        http = await self._client()
+        response = await http.get(
+            f"{API_BASE}/me/player/recently-played",
+            params={"limit": max(1, min(limit, 50))},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        _raise_for_spotify(response)
+        seen: set[str] = set()
+        tracks = []
+        for item in response.json().get("items", []):
+            track = self._track(item["track"])
+            if track["id"] in seen:
+                continue
+            seen.add(track["id"])
+            tracks.append(track)
+        return tracks
+
     async def get_track(self, track_id: str, access_token: str) -> dict:
         http = await self._client()
         response = await http.get(

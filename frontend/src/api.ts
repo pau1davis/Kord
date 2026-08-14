@@ -113,3 +113,20 @@ export const getTaste = () => json<Taste>("/api/me/taste");
 export const analyzeTop = () =>
   json<{ queued: number; total: number }>(
     "/api/me/top/analyze", { method: "POST" });
+
+export type LibraryKey = { key: string; count: number };
+
+export type Library = {
+  analyzed: number;
+  with_audio: number;
+  with_stems: number;
+  keys: LibraryKey[];
+  tempo: { min: number; median: number; max: number } | null;
+  resume: {
+    id: string; title: string; artist: string;
+    key: string | null; tempo: number | null;
+  } | null;
+};
+
+export const getLibrary = () => json<Library>("/api/me/library");
+export const getRecent = () => json<TrackSummary[]>("/api/me/recent");

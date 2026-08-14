@@ -305,3 +305,21 @@ def stem_job_for(conn, spotify_id: str):
         "SELECT * FROM stem_job WHERE spotify_id=? ORDER BY id DESC LIMIT 1",
         (spotify_id,),
     ).fetchone()
+
+
+def recently_opened(conn, limit: int = 6):
+    """Songs you have actually played in Kord, most recent first.
+
+    `last_played_at` is stamped when the audio endpoint serves a file, so this
+    is what you were working on rather than what you merely searched for.
+    """
+    return conn.execute(
+        "SELECT * FROM track WHERE last_played_at IS NOT NULL "
+        "ORDER BY last_played_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+
+
+def count_tracks_with_audio(conn) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) c FROM track WHERE audio_ext IS NOT NULL"
+    ).fetchone()["c"]

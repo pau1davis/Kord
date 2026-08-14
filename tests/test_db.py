@@ -210,3 +210,24 @@ def test_a_failed_stem_job_records_its_reason():
     row = db.stem_job_for(conn, "t1")
     assert row["state"] == "failed"
     assert "exploded" in row["error"]
+
+
+def test_recently_opened_is_most_recent_first():
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    for tid in ("t1", "t2", "t3"):
+        db.upsert_track(conn, tid, "A", tid, "Al", 1000)
+    conn.execute("UPDATE track SET last_played_at='2026-01-01' WHERE spotify_id='t1'")
+    conn.execute("UPDATE track SET last_played_at='2026-03-01' WHERE spotify_id='t2'")
+    conn.commit()
+    rows = db.recently_opened(conn)
+    assert [r["spotify_id"] for r in rows] == ["t2", "t1"], "t3 was never played"
+
+
+def test_counts_tracks_with_retained_audio():
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    db.upsert_track(conn, "t2", "A", "T", "Al", 1000)
+    db.set_audio_ext(conn, "t1", ".m4a")
+    assert db.count_tracks_with_audio(conn) == 1
