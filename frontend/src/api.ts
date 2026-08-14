@@ -89,6 +89,7 @@ export type StemState =
 export type StemStatus = {
   status: StemState;
   error: string | null;
+  progress: number;
   available: string[];
 };
 

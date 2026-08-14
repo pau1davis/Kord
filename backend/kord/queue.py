@@ -96,8 +96,19 @@ def run_one_stem_job(conn, separator, audio_store, stem_store) -> str | None:
             "no retained audio to separate; re-analyse the song first")
         return "unavailable"
 
+    # Throttled: demucs fires the callback per chunk, which would be hundreds
+    # of writes for one song. A percentage point is finer than anyone can see.
+    last = 0.0
+
+    def on_progress(fraction: float) -> None:
+        nonlocal last
+        if fraction - last >= 0.01 or fraction >= 1.0:
+            last = fraction
+            db.set_stem_progress(conn, job["id"], fraction)
+
     try:
-        separator.separate(source, stem_store.dir_for(spotify_id))
+        separator.separate(
+            source, stem_store.dir_for(spotify_id), on_progress=on_progress)
     except Exception as exc:
         # Never leave a half-written set behind: a partial directory would
         # report as "has stems" and play back missing parts.

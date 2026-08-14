@@ -12,6 +12,7 @@ export function StemMixer({
   const [state, setState] = useState<StemState>("none");
   const [available, setAvailable] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
   const [player, setPlayer] = useState<StemPlayer | null>(null);
   const [muted, setMuted] = useState<Set<string>>(new Set());
   const [soloed, setSoloed] = useState<Set<string>>(new Set());
@@ -29,8 +30,9 @@ export function StemMixer({
         setState(s.status);
         setAvailable(s.available);
         setError(s.error);
+        setProgress(s.progress ?? 0);
         if (s.status === "pending" || s.status === "running") {
-          timer = window.setTimeout(poll, 4000);
+          timer = window.setTimeout(poll, 2000);
         }
       } catch {
         if (live) timer = window.setTimeout(poll, 8000);
@@ -94,9 +96,19 @@ export function StemMixer({
   }
 
   if (state === "pending" || state === "running") {
+    const percent = Math.round(progress * 100);
     return (
       <div className="stems">
-        <p className="hint">Separating the parts… this takes a couple of minutes.</p>
+        <div className="sep-progress">
+          <div className="bar">
+            <span style={{ width: `${Math.max(2, percent)}%` }} />
+          </div>
+          <p className="hint">
+            {state === "pending"
+              ? "Queued — starting shortly."
+              : `Separating the parts — ${percent}%`}
+          </p>
+        </div>
       </div>
     );
   }

@@ -365,6 +365,7 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
         return {
             "status": job["state"] if job else "none",
             "error": job["error"] if job else None,
+            "progress": job["progress"] if job else 0,
             "available": available,
         }
 

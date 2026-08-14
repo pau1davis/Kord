@@ -205,7 +205,7 @@ class FakeSeparator:
         self.explode = explode
         self.calls = []
 
-    def separate(self, source, dest_dir):
+    def separate(self, source, dest_dir, on_progress=None):
         self.calls.append(source)
         if self.explode:
             raise RuntimeError("model exploded")
@@ -277,3 +277,37 @@ def test_no_pending_stem_job_returns_none(conn, tmp_path):
     store = _audio_store_with_song(tmp_path, conn)
     assert run_one_stem_job(
         conn, FakeSeparator(), store, StemStore(tmp_path / "stems")) is None
+
+
+def test_stem_job_reports_progress_as_it_goes(conn, tmp_path):
+    """A blind two-minute wait is the actual complaint, not the two minutes."""
+    from kord.audio.stem_store import StemStore
+    from kord.queue import run_one_stem_job
+
+    class ReportingSeparator(FakeSeparator):
+        def separate(self, source, dest_dir, on_progress=None):
+            for fraction in (0.25, 0.5, 0.75):
+                if on_progress:
+                    on_progress(fraction)
+            return super().separate(source, dest_dir)
+
+    store = _audio_store_with_song(tmp_path, conn)
+    job_id = db.enqueue_stem_job(conn, "t1")
+    seen = []
+
+    original = db.set_stem_progress
+
+    def spy(c, jid, fraction):
+        seen.append(fraction)
+        original(c, jid, fraction)
+
+    db.set_stem_progress = spy
+    try:
+        run_one_stem_job(conn, ReportingSeparator(), store,
+                         StemStore(tmp_path / "stems"))
+    finally:
+        db.set_stem_progress = original
+
+    assert seen == [0.25, 0.5, 0.75]
+    assert db.stem_job_for(conn, "t1")["progress"] == 1.0
+    assert job_id

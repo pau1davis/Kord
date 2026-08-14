@@ -231,3 +231,24 @@ def test_counts_tracks_with_retained_audio():
     db.upsert_track(conn, "t2", "A", "T", "Al", 1000)
     db.set_audio_ext(conn, "t1", ".m4a")
     assert db.count_tracks_with_audio(conn) == 1
+
+
+def test_stem_progress_is_recorded_and_read_back():
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    job_id = db.enqueue_stem_job(conn, "t1")
+    assert db.stem_job_for(conn, "t1")["progress"] == 0
+    db.set_stem_progress(conn, job_id, 0.42)
+    assert db.stem_job_for(conn, "t1")["progress"] == pytest.approx(0.42)
+
+
+def test_finishing_a_stem_job_completes_its_progress():
+    """A done job showing 87% would read as still working."""
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "A", "T", "Al", 1000)
+    job_id = db.enqueue_stem_job(conn, "t1")
+    db.set_stem_progress(conn, job_id, 0.87)
+    db.finish_stem_job(conn, job_id, "done")
+    assert db.stem_job_for(conn, "t1")["progress"] == 1.0

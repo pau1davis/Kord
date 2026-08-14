@@ -6,10 +6,13 @@ file so it can be swapped or removed without touching anything above it.
 from __future__ import annotations
 
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+
+from typing import Callable
 
 STEM_NAMES: tuple[str, ...] = (
     "drums", "bass", "other", "vocals", "guitar", "piano")
@@ -20,6 +23,11 @@ MODEL_NAME = "htdemucs_6s"
 # against 11.5s on MPS, so MPS is slower AND carries known instability. Pinning
 # CPU removes a fallback path that would otherwise need maintaining.
 DEVICE = "cpu"
+
+# Separation is the slow part and the encode is not, so the split reserves most
+# of the bar for the model. Measured: ~85s of model against ~12s of ffmpeg for
+# a three-minute song.
+MODEL_SHARE = 0.88
 
 
 def encode_stem(samples: np.ndarray, sr: int, dest: Path) -> Path:
@@ -57,7 +65,10 @@ class DemucsSeparator:
             self._model = get_model(self.model_name)
         return self._model
 
-    def separate(self, source: Path, dest_dir: Path) -> dict[str, Path]:
+    def separate(
+        self, source: Path, dest_dir: Path,
+        on_progress: "Callable[[float], None] | None" = None,
+    ) -> dict[str, Path]:
         import librosa
         import torch
         from demucs.apply import apply_model
@@ -68,10 +79,30 @@ class DemucsSeparator:
             y = np.stack([y, y])
 
         wav = torch.from_numpy(y).float()
-        out = apply_model(model, wav[None], device=DEVICE, progress=False)[0]
+        samples = wav.shape[-1]
 
-        written: dict[str, Path] = {}
-        for name, tensor in zip(model.sources, out):
-            written[name] = encode_stem(
-                tensor.cpu().numpy(), model.samplerate, dest_dir / f"{name}.m4a")
-        return written
+        def report(data: dict) -> None:
+            if on_progress is None or not samples:
+                return
+            # demucs reports how far into the mix each finished chunk started.
+            done = min(1.0, data.get("segment_offset", 0) / samples)
+            on_progress(done * MODEL_SHARE)
+
+        out = apply_model(
+            model, wav[None], device=DEVICE, progress=False,
+            callback=report, callback_arg={"audio_length": samples},
+        )[0]
+
+        # ffmpeg is a subprocess, so threads genuinely overlap here rather than
+        # queueing behind the GIL. Six sequential encodes were ~12s of the wait.
+        pairs = list(zip(model.sources, out))
+        with ThreadPoolExecutor(max_workers=min(6, len(pairs))) as pool:
+            paths = list(pool.map(
+                lambda pair: encode_stem(
+                    pair[1].cpu().numpy(), model.samplerate,
+                    dest_dir / f"{pair[0]}.m4a"),
+                pairs))
+
+        if on_progress is not None:
+            on_progress(1.0)
+        return {name: path for (name, _), path in zip(pairs, paths)}

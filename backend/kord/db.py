@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS stem_job (
     spotify_id TEXT NOT NULL,
     state      TEXT NOT NULL DEFAULT 'pending',
     error      TEXT,
+    progress   REAL NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -58,6 +59,7 @@ CREATE INDEX IF NOT EXISTS stem_job_state_idx ON stem_job(state);
 # Columns added after the first release; ALTER is idempotent-checked below.
 _AUTH_COLUMNS = {"access_token": "TEXT", "expires_at": "REAL"}
 _TRACK_COLUMNS = {"audio_ext": "TEXT", "last_played_at": "TEXT"}
+_STEM_JOB_COLUMNS = {"progress": "REAL NOT NULL DEFAULT 0"}
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -72,7 +74,15 @@ def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     _migrate_auth(conn)
     _migrate_track(conn)
+    _migrate_stem_job(conn)
     conn.commit()
+
+
+def _migrate_stem_job(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(stem_job)")}
+    for column, kind in _STEM_JOB_COLUMNS.items():
+        if column not in columns:
+            conn.execute(f"ALTER TABLE stem_job ADD COLUMN {column} {kind}")
 
 
 def _migrate_track(conn: sqlite3.Connection) -> None:
@@ -293,10 +303,19 @@ def claim_stem_job(conn):
     return row
 
 
-def finish_stem_job(conn, job_id: int, state: str, error: str | None = None) -> None:
+def set_stem_progress(conn, job_id: int, fraction: float) -> None:
     conn.execute(
-        "UPDATE stem_job SET state=?, error=?, updated_at=datetime('now') "
-        "WHERE id=?", (state, error, job_id))
+        "UPDATE stem_job SET progress=?, updated_at=datetime('now') WHERE id=?",
+        (max(0.0, min(1.0, fraction)), job_id))
+    conn.commit()
+
+
+def finish_stem_job(conn, job_id: int, state: str, error: str | None = None) -> None:
+    # Completing the progress too: a finished job still reading 87% looks like
+    # it is still working.
+    conn.execute(
+        "UPDATE stem_job SET state=?, error=?, progress=1.0, "
+        "updated_at=datetime('now') WHERE id=?", (state, error, job_id))
     conn.commit()
 
 
