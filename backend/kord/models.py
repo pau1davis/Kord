@@ -43,6 +43,18 @@ class BeatGrid:
 
 
 @dataclass(frozen=True)
+class Tuning:
+    """Where the record sits relative to A440.
+
+    Deliberately not a named tuning — see `analysis/tuning.py` for why one
+    cannot be measured. `agreement` is how tightly the windows of the song
+    agreed; a low value means the number should not be shown as fact.
+    """
+    reference_cents: float
+    agreement: float
+
+
+@dataclass(frozen=True)
 class AudioCandidate:
     path: str | None
     url: str
@@ -75,6 +87,7 @@ class Analysis:
     chord_confidence_mean: float = 0.0
     heaviness: float = 0.0
     sections: list[Section] = field(default_factory=list)
+    tuning: Tuning | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -96,4 +109,7 @@ class Analysis:
             chord_confidence_mean=d.get("chord_confidence_mean", 0.0),
             heaviness=d.get("heaviness", 0.0),
             sections=[Section(**s) for s in d.get("sections", [])],
+            # Absent from anything analysed before tuning existed, and those
+            # rows are not re-analysed just for it.
+            tuning=Tuning(**d["tuning"]) if d.get("tuning") else None,
         )

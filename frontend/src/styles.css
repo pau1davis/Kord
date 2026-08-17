@@ -841,3 +841,14 @@ body {
   .spinner { animation: pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 50% { border-top-color: var(--line); } }
 }
+
+.theory .reference {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.35rem;
+}
+.theory .notes.quiet {
+  opacity: 0.6; font-size: 0.8rem; line-height: 1.5; margin-bottom: 0.4rem;
+}

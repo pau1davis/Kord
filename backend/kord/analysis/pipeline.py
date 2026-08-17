@@ -12,9 +12,10 @@ from kord.analysis.key import KeyDetector
 from kord.analysis.recognizer import ChordRecognizer
 from kord.analysis.sections import detect_sections
 from kord.analysis.timbre import heaviness as measure_heaviness
+from kord.analysis.tuning import estimate_reference
 from kord.audio.decode import SAMPLE_RATE, decode_to_wav, trim_leading_silence
 from kord.audio.validate import rank_candidates
-from kord.models import Analysis
+from kord.models import Analysis, Tuning
 from kord.theory.qualities import NO_CHORD
 
 log = logging.getLogger("kord.pipeline")
@@ -98,6 +99,7 @@ class AnalysisPipeline:
             time_scale = ratio if tier == "speed_adjusted" else 1.0
 
             sections = detect_sections(y, sr)
+            reference = estimate_reference(y, sr)
 
             if self.audio_store is not None:
                 try:
@@ -122,6 +124,8 @@ class AnalysisPipeline:
                 chord_confidence_mean=float(np.mean(confidences)) if confidences else 0.0,
                 heaviness=track_heaviness,
                 sections=sections,
+                tuning=Tuning(reference_cents=reference.cents,
+                              agreement=reference.agreement),
             )
         finally:
             # Spec: audio is deleted unconditionally, including on failure paths.

@@ -30,6 +30,17 @@ export type TrackStatus = "done" | "pending" | "failed" | "unavailable";
 
 export type SongSection = { start_s: number; end_s: number; label: string };
 
+/**
+ * Where the record sits relative to A440 — not a named tuning, which cannot be
+ * measured from audio. `reliable` is false when the song's windows disagreed,
+ * or when the source upload was speed-adjusted and so pitch-shifted.
+ */
+export type Tuning = {
+  reference_cents: number;
+  agreement: number;
+  reliable: boolean;
+};
+
 export type TrackResponse = {
   track: TrackSummary;
   status: TrackStatus;
@@ -42,6 +53,7 @@ export type TrackResponse = {
   sections?: SongSection[];
   has_audio?: boolean;
   beats?: number[];
+  tuning?: Tuning | null;
 };
 
 export class ApiError extends Error {

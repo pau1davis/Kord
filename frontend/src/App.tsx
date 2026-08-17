@@ -159,7 +159,11 @@ export default function App() {
                 onLoopChange={setLoop}
               />
               <div className="song-body">
-                <TheoryPanel theory={data.theory} flags={data.flags ?? []} />
+                <TheoryPanel
+                  theory={data.theory}
+                  flags={data.flags ?? []}
+                  tuning={data.tuning}
+                />
               </div>
               <ChordSheet entries={data.chart} onSeek={seekToChart} />
               <StemMixer trackId={track.id} onActiveChange={handleStemsActive} />

@@ -25,6 +25,9 @@ from kord.theory.scales import note_name, scale_for, uses_sharps
 
 CONFIDENCE_FLOOR = 0.35
 KEY_CONFIDENCE_FLOOR = 0.6
+# Below this the song's windows disagreed about where A sits, so the
+# reference-pitch reading is noise rather than a measurement.
+TUNING_AGREEMENT_FLOOR = 0.5
 
 # mimetypes maps .m4a to audio/mp4a-latm (LATM-packaged AAC, which browsers
 # refuse) and .webm to video/webm. Both are wrong for what we serve, so the
@@ -71,6 +74,17 @@ def render_analysis(analysis: Analysis, has_audio: bool = False) -> dict:
         if segment.quality != NO_CHORD and segment.root >= 0
     ]
     scale = scale_for(key.root, key.mode)
+    tuning = None
+    if analysis.tuning is not None:
+        # A speed-adjusted upload is pitch-shifted by up to 35 cents, which is
+        # the same size as the effect being measured — so the reading says
+        # nothing about how the band tuned, and is marked rather than shown.
+        tuning = {
+            "reference_cents": round(analysis.tuning.reference_cents, 1),
+            "agreement": round(analysis.tuning.agreement, 3),
+            "reliable": (analysis.tuning.agreement >= TUNING_AGREEMENT_FLOOR
+                         and "speed_adjusted" not in analysis.flags),
+        }
     return {
         "status": "done",
         "chart": chart,
@@ -90,6 +104,7 @@ def render_analysis(analysis: Analysis, has_audio: bool = False) -> dict:
             for s in analysis.sections
         ],
         "has_audio": has_audio,
+        "tuning": tuning,
         "beats": analysis.beat_grid.times_s,
     }
 

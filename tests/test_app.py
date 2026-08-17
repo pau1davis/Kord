@@ -616,3 +616,42 @@ def test_library_without_history_has_nothing_to_resume(client):
     body = c.get("/api/me/library").json()
     assert body["resume"] is None
     assert body["analyzed"] == 0
+
+
+def _analysis_with_tuning(cents, agreement, flags=()):
+    from kord.models import Tuning
+    return Analysis(
+        spotify_id="t1", engine_version="chroma-1",
+        key=KeyEstimate(0, "major", 0.85, True), tempo=92.0,
+        beat_grid=BeatGrid([0.0, 0.65], 92.0), chord_segments=[],
+        source_url="u", source_duration_ms=238000, time_scale=1.0,
+        sync_offset_ms=0, flags=list(flags),
+        tuning=Tuning(reference_cents=cents, agreement=agreement))
+
+
+def test_a_detuned_record_reports_its_reference_pitch():
+    from kord.app import render_analysis
+    tuning = render_analysis(_analysis_with_tuning(-36.0, 0.96))["tuning"]
+    assert tuning["reference_cents"] == -36.0
+    assert tuning["reliable"] is True
+
+
+def test_a_speed_adjusted_source_makes_the_reading_meaningless():
+    """A 2% speed change shifts pitch by 35 cents — the size of the thing being
+    measured — so the number describes the upload, not how the band tuned."""
+    from kord.app import render_analysis
+    tuning = render_analysis(
+        _analysis_with_tuning(33.0, 1.0, flags=["speed_adjusted"]))["tuning"]
+    assert tuning["reliable"] is False
+
+
+def test_windows_that_disagreed_are_not_reported_as_fact():
+    from kord.app import render_analysis
+    assert render_analysis(_analysis_with_tuning(12.0, 0.2))["tuning"]["reliable"] is False
+
+
+def test_an_analysis_from_before_tuning_existed_has_none():
+    from kord.app import render_analysis
+    analysis = _analysis_with_tuning(0.0, 0.0)
+    object.__setattr__(analysis, "tuning", None)
+    assert render_analysis(analysis)["tuning"] is None
