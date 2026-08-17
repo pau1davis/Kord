@@ -67,9 +67,11 @@ class AnalysisPipeline:
         self, spotify_id: str, artist: str, title: str, spotify_duration_ms: int
     ) -> Analysis:
         candidates = self.source.search(artist, title)
-        ranked = rank_candidates(spotify_duration_ms, candidates)
+        ranked = rank_candidates(spotify_duration_ms, candidates, artist, title)
         if not ranked:
-            raise NoAudioFound(f"no candidate matched duration for {artist} - {title}")
+            raise NoAudioFound(
+                f"no studio recording of {artist} - {title} was found: every "
+                f"result was the wrong length, or a live take, cover or remix")
 
         work_dir = self.scratch_dir / spotify_id
         try:

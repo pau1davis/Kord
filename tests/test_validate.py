@@ -2,8 +2,9 @@ from kord.audio.validate import classify_ratio, rank_candidates, select_candidat
 from kord.models import AudioCandidate
 
 
-def cand(duration_ms, url="u"):
-    return AudioCandidate(path=None, url=url, duration_ms=duration_ms, title="t")
+def cand(duration_ms, url="u", title="t", uploader=""):
+    return AudioCandidate(path=None, url=url, duration_ms=duration_ms,
+                          title=title, uploader=uploader)
 
 
 def test_tier_boundaries_from_spec():
@@ -76,3 +77,39 @@ def test_rank_keeps_every_clean_candidate_as_a_fallback():
 def test_select_candidate_still_returns_the_top_ranked():
     ranked = rank_candidates(200_000, [cand(197_000, "speedy"), cand(200_000, "clean")])
     assert select_candidate(200_000, [cand(197_000, "speedy"), cand(200_000, "clean")]) == ranked[0]
+
+
+def test_a_live_take_at_the_records_tempo_is_dropped_despite_matching_length():
+    """The case duration matching cannot see: same length, wrong recording."""
+    ranked = rank_candidates(200_000, [
+        cand(200_000, "gig", "Nirvana - Come As You Are (Live at Reading)"),
+        cand(200_000, "record", "Nirvana - Come As You Are"),
+    ], "Nirvana", "Come As You Are")
+    assert [c.url for c, _, _ in ranked] == ["record"]
+
+
+def test_plain_audio_is_chosen_over_the_music_video():
+    ranked = rank_candidates(200_000, [
+        cand(200_000, "video", "Nirvana - Come As You Are (Official Music Video)"),
+        cand(200_000, "audio", "Nirvana - Come As You Are (Lyrics)"),
+        cand(200_000, "master", "Come As You Are", uploader="Nirvana - Topic"),
+    ], "Nirvana", "Come As You Are")
+    assert [c.url for c, _, _ in ranked] == ["master", "audio", "video"]
+
+
+def test_length_outranks_the_title():
+    """A speed-adjusted upload is pitch-shifted however officially it is
+    labelled, so a clean match wins even as a mere music video."""
+    ranked = rank_candidates(200_000, [
+        cand(197_000, "official", "Come As You Are (Official Audio)"),
+        cand(200_000, "video", "Come As You Are (Official Video)"),
+    ], "Nirvana", "Come As You Are")
+    assert [c.url for c, _, _ in ranked] == ["video", "official"]
+
+
+def test_ranking_without_artist_and_title_still_reads_the_obvious_markers():
+    ranked = rank_candidates(200_000, [
+        cand(200_000, "gig", "Some Band - A Song (Live in Tokyo)"),
+        cand(200_000, "record", "Some Band - A Song"),
+    ])
+    assert [c.url for c, _, _ in ranked] == ["record"]

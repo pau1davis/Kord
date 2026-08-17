@@ -808,4 +808,27 @@ body {
   display: block; height: 100%; background: var(--brass);
   transition: width 0.6s ease;
 }
-.sep-progress .hint { font-variant-numeric: tabular-nums; }
+.sep-progress .hint {
+  font-variant-numeric: tabular-nums;
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.sep-progress .hint.quiet {
+  opacity: 0.62; font-size: 0.82rem; line-height: 1.45; display: block;
+}
+
+/* An arc that leaves a gap, so the rotation is legible rather than a
+   featureless ring that could equally be standing still. */
+.spinner {
+  flex: none; width: 0.85rem; height: 0.85rem; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-top-color: var(--brass);
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(1turn); } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Still has to read as activity, so pulse the colour instead of moving. */
+  .spinner { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { border-top-color: var(--line); } }
+}

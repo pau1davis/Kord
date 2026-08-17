@@ -19,7 +19,11 @@ DOWNLOAD_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
 
 
 class YouTubeAudioSource:
-    def __init__(self, max_results: int = 5) -> None:
+    # Wider than it needs to be for one good result. Live takes, covers,
+    # lessons and reaction videos all rank highly for a well known song, and
+    # they are all discarded before a download is attempted (validate.py), so
+    # a narrow search can come back with nothing usable at all.
+    def __init__(self, max_results: int = 12) -> None:
         self.max_results = max_results
 
     def search(self, artist: str, title: str) -> list[AudioCandidate]:
@@ -36,6 +40,7 @@ class YouTubeAudioSource:
                 url=entry.get("webpage_url") or entry["url"],
                 duration_ms=int((entry.get("duration") or 0) * 1000),
                 title=entry.get("title", ""),
+                uploader=entry.get("uploader") or entry.get("channel") or "",
             )
             for entry in (info.get("entries") or [])
         ]

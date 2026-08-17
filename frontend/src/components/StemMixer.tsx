@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStems, requestStems, type StemState } from "../api";
 import { createStemPlayer, type StemPlayer } from "../stemPlayer";
-import { STEM_ORDER } from "../stems";
+import { isSeparating, STEM_ORDER } from "../stems";
 
 function timecode(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -26,6 +26,11 @@ export function StemMixer({
   const playerRef = useRef<StemPlayer | null>(null);
 
   // Poll while separation is running. Roughly 2 minutes for a 4 minute song.
+  //
+  // `separating` is a dependency so that pressing the button re-arms this: the
+  // first fetch of an untouched song answers "none" and stops the loop, and
+  // without that dependency nothing ever restarted it.
+  const separating = isSeparating(state);
   useEffect(() => {
     let live = true;
     let timer: number | undefined;
@@ -37,9 +42,7 @@ export function StemMixer({
         setAvailable(s.available);
         setError(s.error);
         setProgress(s.progress ?? 0);
-        if (s.status === "pending" || s.status === "running") {
-          timer = window.setTimeout(poll, 2000);
-        }
+        if (isSeparating(s.status)) timer = window.setTimeout(poll, 2000);
       } catch {
         if (live) timer = window.setTimeout(poll, 8000);
       }
@@ -49,7 +52,7 @@ export function StemMixer({
       live = false;
       window.clearTimeout(timer);
     };
-  }, [trackId]);
+  }, [trackId, separating]);
 
   // One player per song. Tearing it down closes its AudioContext, which is
   // what actually frees the decoded buffers.
@@ -111,7 +114,7 @@ export function StemMixer({
     );
   }
 
-  if (state === "pending" || state === "running") {
+  if (separating) {
     const percent = Math.round(progress * 100);
     return (
       <div className="stems">
@@ -120,9 +123,16 @@ export function StemMixer({
             <span style={{ width: `${Math.max(2, percent)}%` }} />
           </div>
           <p className="hint">
+            {/* A bar at 0% for the first half minute reads as stalled, so the
+                spinner carries the "still working" signal on its own. */}
+            <span className="spinner" aria-hidden="true" />
             {state === "pending"
               ? "Queued — starting shortly."
               : `Separating the parts — ${percent}%`}
+          </p>
+          <p className="hint quiet">
+            Listening to the whole song and pulling each instrument out of it.
+            A couple of minutes; you can keep using the rest of the page.
           </p>
         </div>
       </div>

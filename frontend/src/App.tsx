@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getTrack, type TrackResponse, type TrackSummary } from "./api";
 import { chartTime, loopTarget, type LoopRange } from "./chart";
 import { usePlayhead } from "./hooks/usePlayhead";
+import { songInView } from "./navigation";
 import { createPlayer, type Player } from "./player";
 import { AnalysisProgress } from "./components/AnalysisProgress";
 import { ChordSheet } from "./components/ChordSheet";
@@ -20,7 +21,12 @@ export default function App() {
   const [data, setData] = useState<TrackResponse | null>(null);
 
   useEffect(() => {
-    if (!picked) return;
+    // Leaving for the dashboard drops the analysis with the song: keeping it
+    // would leave a finished response describing a song no longer on screen.
+    if (!picked) {
+      setData(null);
+      return;
+    }
     let live = true;
     let timer: number | undefined;
 
@@ -96,7 +102,7 @@ export default function App() {
   const seekToChart = (t: number) =>
     player?.seek(t + (data?.sync_offset_ms ?? 0) / 1000);
 
-  const track = data?.track ?? picked;
+  const track = songInView(picked, data);
 
   return (
     <>

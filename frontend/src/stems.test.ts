@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { elapsedAt, gainsFor, STEM_ORDER } from "./stems";
+import { elapsedAt, gainsFor, isSeparating, STEM_ORDER } from "./stems";
+
+describe("isSeparating", () => {
+  it("covers the whole of the wait, not just the running part", () => {
+    // Pressing the button sets "pending" before the server has been asked, so
+    // a poller that only re-armed on "running" would never see the job start.
+    expect(isSeparating("pending")).toBe(true);
+    expect(isSeparating("running")).toBe(true);
+  });
+
+  it("is over once there is something to listen to, or nothing coming", () => {
+    expect(isSeparating("done")).toBe(false);
+    expect(isSeparating("none")).toBe(false);
+    expect(isSeparating("failed")).toBe(false);
+    expect(isSeparating("unavailable")).toBe(false);
+  });
+});
 
 describe("gainsFor", () => {
   const all = ["drums", "bass", "guitar"];

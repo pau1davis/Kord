@@ -48,6 +48,9 @@ class AudioCandidate:
     url: str
     duration_ms: int
     title: str
+    # Who uploaded it. YouTube's auto-generated "<artist> - Topic" channels
+    # carry the label's own master, which is the best audio available.
+    uploader: str = ""
 
 
 @dataclass(frozen=True)

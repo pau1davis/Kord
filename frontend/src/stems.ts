@@ -21,6 +21,19 @@ export function gainsFor(
 }
 
 /**
+ * Is separation underway — queued or actually running?
+ *
+ * One definition serving both the progress panel and the polling loop, because
+ * the bug was the two disagreeing: pressing "Separate the parts" set the status
+ * to pending optimistically, which the panel rendered as "Queued", but the
+ * poller had already stopped when the initial fetch came back "none" and had no
+ * reason to start again. The message sat there unchanged until a reload.
+ */
+export function isSeparating(status: string): boolean {
+  return status === "pending" || status === "running";
+}
+
+/**
  * Playhead position in seconds.
  *
  * Web Audio has no pause, so playback is stop-and-restart: `offset` is where
