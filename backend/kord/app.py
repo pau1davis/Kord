@@ -16,6 +16,10 @@ from kord.config import Settings
 from kord.engine import resolve_engine_version
 from kord.models import Analysis
 from kord.spotify import SCOPES, SpotifyError, authorize_url, build_pkce_pair
+from kord.tab.bars import bar_starts
+from kord.tab.positions import assign_positions
+from kord.tab.store import TabStore
+from kord.tab.tunings import DEFAULT_FOR_PART, TUNINGS
 from kord.theory.palette import build_palette
 from kord.theory.library import summarise
 from kord.theory.taste import aggregate_palette
@@ -409,6 +413,64 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
         if path is None:
             raise HTTPException(status_code=404, detail="stem not available")
         return FileResponse(path, media_type=AUDIO_MEDIA_TYPES[".m4a"])
+
+    @app.post("/api/track/{track_id}/tab")
+    async def request_tab(track_id: str):
+        # Transcription reads the stems, so it cannot run before they exist.
+        if not StemStore(settings.stems_dir).has_stems(track_id):
+            raise HTTPException(
+                status_code=409,
+                detail="Separate the parts first — tab is read off the stems.")
+        return {"job_id": db.enqueue_tab_job(conn, track_id), "status": "pending"}
+
+    @app.get("/api/track/{track_id}/tab")
+    async def tab_status(track_id: str):
+        available = TabStore(settings.tabs_dir).parts(track_id)
+        job = db.tab_job_for(conn, track_id)
+        if available and (job is None or job["state"] == "done"):
+            return {"status": "done", "available": available,
+                    "error": None, "progress": 1.0}
+        if job is None:
+            return {"status": "none", "available": [],
+                    "error": None, "progress": 0.0}
+        return {"status": job["state"], "available": available,
+                "error": job["error"], "progress": job["progress"]}
+
+    @app.get("/api/track/{track_id}/tab/{part}")
+    async def tab_part(track_id: str, part: str, tuning: str | None = None):
+        # Defaulting per part, not globally: answering a bass request in guitar
+        # tuning would put every fret in the wrong place and say nothing.
+        chosen = tuning or DEFAULT_FOR_PART.get(part, "E standard")
+        if chosen not in TUNINGS:
+            raise HTTPException(
+                status_code=400, detail=f"unknown tuning: {chosen}")
+        try:
+            events = TabStore(settings.tabs_dir).load(track_id, part)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"unknown part: {part}") from None
+
+        positions = assign_positions([e.midi for e in events], TUNINGS[chosen])
+        analysis = db.get_analysis(conn, track_id, engine_version)
+        beats = analysis.beat_grid.times_s if analysis else []
+        return {
+            "part": part,
+            "tuning": chosen,
+            "strings": len(TUNINGS[chosen]),
+            "bars": bar_starts(beats),
+            # Positions are derived here rather than stored, so switching
+            # tuning re-renders the same notes without re-transcribing.
+            "notes": [
+                {"start_s": round(e.start_s, 3), "end_s": round(e.end_s, 3),
+                 "midi": e.midi, "confidence": round(e.confidence, 3),
+                 "string": p.string if p else None,
+                 "fret": p.fret if p else None}
+                for e, p in zip(events, positions)
+            ],
+            # A lot of these means the chosen tuning cannot reach the music,
+            # which is worth showing rather than hiding.
+            "unplayable": sum(1 for p in positions if p is None),
+        }
 
     @app.get("/api/track/{track_id}/events")
     async def events(track_id: str):
