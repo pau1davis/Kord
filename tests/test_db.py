@@ -252,3 +252,54 @@ def test_finishing_a_stem_job_completes_its_progress():
     db.set_stem_progress(conn, job_id, 0.87)
     db.finish_stem_job(conn, job_id, "done")
     assert db.stem_job_for(conn, "t1")["progress"] == 1.0
+
+
+def _analysis(spotify_id, engine_version, tempo=92.0):
+    from kord.models import Analysis, BeatGrid, KeyEstimate
+    return Analysis(
+        spotify_id=spotify_id, engine_version=engine_version,
+        key=KeyEstimate(0, "major", 0.85, True), tempo=tempo,
+        beat_grid=BeatGrid([0.0, 0.65], tempo), chord_segments=[],
+        source_url="u", source_duration_ms=1000, time_scale=1.0,
+        sync_offset_ms=0)
+
+
+def test_best_analysis_prefers_the_current_engine(tmp_path):
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_analysis(conn, _analysis("t1", "btc-4", tempo=90.0))
+    db.save_analysis(conn, _analysis("t1", "btc-5", tempo=120.0))
+    found, current = db.best_analysis(conn, "t1", "btc-5")
+    assert found.tempo == 120.0
+    assert current is True
+
+
+def test_best_analysis_falls_back_to_an_older_engine(tmp_path):
+    """An engine bump must not blank a library.
+
+    Bumping to btc-5 made every btc-4 analysis unreachable, so 25 songs that
+    worked an hour earlier read as unavailable — and the re-analysis that would
+    have fixed them was being refused by YouTube with 403s.
+    """
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_analysis(conn, _analysis("t1", "btc-4", tempo=90.0))
+    found, current = db.best_analysis(conn, "t1", "btc-5")
+    assert found.tempo == 90.0
+    assert current is False
+
+
+def test_best_analysis_picks_the_newest_of_several_old_engines(tmp_path):
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    for version, tempo in (("btc-1", 60.0), ("btc-3", 80.0), ("btc-4", 90.0)):
+        db.save_analysis(conn, _analysis("t1", version, tempo=tempo))
+    found, current = db.best_analysis(conn, "t1", "btc-5")
+    assert found.tempo == 90.0, "should serve the most recently analysed"
+    assert current is False
+
+
+def test_best_analysis_reports_nothing_when_there_is_nothing(tmp_path):
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    assert db.best_analysis(conn, "t1", "btc-5") == (None, False)

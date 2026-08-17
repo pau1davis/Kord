@@ -353,11 +353,19 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
         db.upsert_track(conn, track["id"], track["artist"], track["title"],
                         track["album"], track["duration_ms"])
 
-        analysis = db.get_analysis(conn, track_id, engine_version)
+        analysis, is_current = db.best_analysis(conn, track_id, engine_version)
         if analysis is not None:
             store = AudioStore(settings.audio_dir, settings.audio_cap_bytes)
             has_audio = store.path_for(track_id) is not None
-            return {"track": track, **render_analysis(analysis, has_audio)}
+            body = {"track": track, **render_analysis(analysis, has_audio)}
+            if not is_current:
+                # Show what we have and upgrade behind it. An older analysis is
+                # what the app was showing yesterday; a blank page is not an
+                # improvement on it just because the engine moved on.
+                db.enqueue_job(conn, track_id)
+                body["engine"] = analysis.engine_version
+                body["stale_engine"] = True
+            return body
 
         job = conn.execute(
             "SELECT state, error FROM job WHERE spotify_id=? ORDER BY id DESC LIMIT 1",

@@ -147,6 +147,12 @@ export default function App() {
                   currentTime={currentTime}
                 />
               )}
+              {data.stale_engine && (
+                <p className="state detail" style={{ paddingTop: 0 }}>
+                  Analysed by an earlier version of Kord. It still plays; a
+                  fresh pass is queued and will replace this when it lands.
+                </p>
+              )}
               {!data.has_audio && (
                 <p className="state detail" style={{ paddingTop: 0 }}>
                   Audio isn't stored for this song yet — re-analyse it to play along.

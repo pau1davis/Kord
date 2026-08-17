@@ -218,6 +218,35 @@ def get_analysis(conn, spotify_id: str, engine_version: str) -> Analysis | None:
     return Analysis.from_dict(json.loads(row["payload"])) if row else None
 
 
+def best_analysis(
+    conn, spotify_id: str, engine_version: str
+) -> tuple[Analysis | None, bool]:
+    """The current engine's analysis, or the newest older one. Plus whether it
+    is current.
+
+    Keying the cache by engine version is right — mixing engine outputs would
+    be worse — but treating a miss as "no analysis" made every bump destructive.
+    Going to btc-5 put 25 songs that had worked an hour earlier into
+    "unavailable", and the re-analysis meant to fix them was being refused by
+    YouTube with 403s, so they would have stayed there.
+
+    An older analysis is worth strictly more than nothing: it is what the app
+    was showing yesterday. The caller upgrades it in the background and says
+    which engine it came from.
+    """
+    current = get_analysis(conn, spotify_id, engine_version)
+    if current is not None:
+        return current, True
+    row = conn.execute(
+        "SELECT payload FROM analysis WHERE spotify_id=? "
+        "ORDER BY analyzed_at DESC, rowid DESC LIMIT 1",
+        (spotify_id,),
+    ).fetchone()
+    if row is None:
+        return None, False
+    return Analysis.from_dict(json.loads(row["payload"])), False
+
+
 def enqueue_job(conn, spotify_id: str) -> int:
     existing = conn.execute(
         "SELECT id FROM job WHERE spotify_id=? AND state IN ('pending','running')",

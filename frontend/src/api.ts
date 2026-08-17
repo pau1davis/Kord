@@ -54,6 +54,9 @@ export type TrackResponse = {
   has_audio?: boolean;
   beats?: number[];
   tuning?: Tuning | null;
+  /** True when this came from an older engine and an upgrade is queued. */
+  stale_engine?: boolean;
+  engine?: string;
 };
 
 export class ApiError extends Error {

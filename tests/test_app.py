@@ -56,10 +56,11 @@ def client(tmp_path, monkeypatch):
     return TestClient(app), conn
 
 
-def save_fixture_analysis(conn, segments, key=None, flags=None):
+def save_fixture_analysis(conn, segments, key=None, flags=None,
+                          engine_version="chroma-1"):
     db.upsert_track(conn, "t1", "Radiohead", "Creep", "Pablo Honey", 238640)
     db.save_analysis(conn, Analysis(
-        spotify_id="t1", engine_version="chroma-1",
+        spotify_id="t1", engine_version=engine_version,
         key=key or KeyEstimate(0, "major", 0.85, True), tempo=92.0,
         beat_grid=BeatGrid([0.0, 0.65], 92.0), chord_segments=segments,
         source_url="u", source_duration_ms=238000, time_scale=1.0,
@@ -755,3 +756,38 @@ def test_tab_status_is_done_once_a_part_exists(tmp_path, monkeypatch):
     body = c.get("/api/track/t1/tab").json()
     assert body["status"] == "done"
     assert body["available"] == ["bass"]
+
+
+def test_a_song_analysed_by_an_older_engine_still_renders(client):
+    """Bumping the engine must not blank the library.
+
+    Going to btc-5 made 25 songs that had worked an hour earlier read as
+    unavailable, while the re-analysis meant to fix them was being refused by
+    YouTube with 403s.
+    """
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)],
+                          engine_version="btc-3")
+
+    body = c.get("/api/track/t1").json()
+    assert body["status"] == "done"
+    assert body["chart"][0]["label"] == "C"
+    assert body["stale_engine"] is True
+    assert body["engine"] == "btc-3"
+
+
+def test_an_older_analysis_queues_its_own_upgrade(client):
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)],
+                          engine_version="btc-3")
+
+    c.get("/api/track/t1")
+    assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 1
+
+
+def test_a_current_analysis_is_not_flagged_as_stale(client):
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+    body = c.get("/api/track/t1").json()
+    assert "stale_engine" not in body
+    assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 0
