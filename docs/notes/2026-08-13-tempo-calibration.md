@@ -77,3 +77,53 @@ remains **measured on zero counter-examples**. The floor and margin are set
 conservatively for that reason. If a song ever shows up reported at half its
 true tempo after this change, this is the first place to look, and the fix is
 to raise `PHASE_MARGIN` toward 0.7 so only a stark asymmetry acts.
+
+---
+
+## 2026-08-17 — the doubling correction was attempted and abandoned
+
+The section above said fixing under-reported fast music "needs the opposite
+correction (doubling on evidence of missed beats between detected ones)" and
+flagged the confound: a genuine half-time feel must not be doubled away. The
+obvious discriminator was measured across all 57 analysed songs and does not
+work.
+
+**Method.** For each song, mean onset strength halfway between detected beats,
+divided by mean onset strength on the beats. The hypothesis: where the tracker
+locked onto half the true tempo, the midpoints carry real beats and the ratio
+is high; where the tempo is right, midpoints carry only subdivisions and the
+ratio is low.
+
+**Result.** The bands do not separate, and the sign is backwards.
+
+| reported tempo | n | median ratio | range |
+|---|---|---|---|
+| under 78 BPM (suspect half-time) | 16 | **0.84** | 0.38–2.88 |
+| 78–110 (probably correct) | 21 | **1.04** | 0.16–1.62 |
+| 110 and above (cannot be half-time) | 20 | **0.96** | 0.18–2.99 |
+
+The songs most likely to be half-time detections have the *lowest* midpoint
+energy, not the highest, and all three ranges overlap almost entirely. At a
+threshold of 0.9 the rule would double 11 of the 20 songs that are already fast
+— including Fade To Black, from about 113 to about 226.
+
+**Why the confound is fatal.** Most rock plays the eighths on guitar or hi-hat,
+so midpoint energy is present whether or not the tempo is wrong. The
+measurement cannot tell "a beat the tracker missed" from "a subdivision that
+was always there", because acoustically they are the same event.
+
+**Not built.** Doubling on this signal would make more songs wrong than it
+fixed, which is worse than the current state where fast songs are consistently
+under-reported.
+
+**What could work instead**, in rough order of cost:
+
+1. **Let the player halve or double it.** A control that persists the choice
+   per song. Cannot be wrong, since the human knows the song, and it is the
+   judgement machines are worst at. Also fixes Only Shallow, which is not an
+   octave error and no correction can reach.
+2. **Show the alternative** — "68 BPM (or 136)" — so the ambiguity is visible
+   rather than a confident wrong number.
+3. **Track beats on the isolated drum stem.** A far better signal than a full
+   mix, but stems are produced on demand after analysis, so tempo would have to
+   be revised later rather than measured once.
