@@ -518,14 +518,21 @@ body {
 
 /* ── Stem mixer ───────────────────────────────────────────── */
 
-.stems { padding: 0 var(--gutter) var(--gutter); display: grid; gap: 0.7rem; }
-.stems .hint { color: var(--text-dim); font: 400 0.8rem var(--mono); margin: 0; }
-.stems .sep {
+/* Base rules, not scoped to one panel. These were defined three times under
+   three different parents, so the tab sheet — a fourth panel using the same
+   classes — inherited nothing and rendered as bare HTML. Panels that genuinely
+   differ still override below, by specificity. */
+.hint { color: var(--text-dim); font: 400 0.8rem var(--mono); margin: 0; }
+.hint.quiet { opacity: 0.62; font-size: 0.78rem; line-height: 1.5; }
+
+.sep {
   justify-self: start; background: none; border: 1px solid var(--line);
   color: var(--brass); border-radius: 999px; padding: 0.45rem 0.9rem;
   font: 500 0.8rem var(--mono); cursor: pointer;
 }
-.stems .sep:hover { border-color: var(--brass); }
+.sep:hover { border-color: var(--brass); }
+
+.stems { padding: 0 var(--gutter) var(--gutter); display: grid; gap: 0.7rem; }
 .mixhead {
   display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
 }
@@ -855,7 +862,12 @@ body {
 
 /* ── Tab sheet ────────────────────────────────────────────── */
 
-.tabsheet { padding: 0 var(--gutter) var(--gutter); }
+/* Grid, like .stems — the base .sep uses justify-self to keep the button its
+   own width rather than stretching across the panel. */
+.tabsheet {
+  padding: 0 var(--gutter) var(--gutter);
+  display: grid; gap: 0.7rem;
+}
 
 .tabhead {
   display: flex; align-items: center; gap: 0.75rem;
