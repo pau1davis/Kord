@@ -64,6 +64,59 @@ def idx2voca_chord() -> dict[int, str]:
     return vocab
 
 
+def decode_frames(probs):
+    """Per frame, the most likely chord and how likely the model thought it.
+
+    The vendored `SoftmaxOutputLayer` computes exactly this and throws half of
+    it away: it calls `topk(probs, 2)` and returns only the indices. Rather
+    than patch vendored code, inference calls `output_projection` directly and
+    softmaxes here, so the probability survives.
+
+    Without it every segment was emitted with a hardcoded confidence of 1.0,
+    which meant `uncertain` — a stated rule of this project — could never fire.
+    """
+    import torch
+
+    top_probs, top_indices = torch.topk(probs, 1, dim=-1)
+    return (
+        [int(i) for i in top_indices.squeeze(-1).reshape(-1).tolist()],
+        [float(p) for p in top_probs.squeeze(-1).reshape(-1).tolist()],
+    )
+
+
+def frames_to_labels(
+    vocab: dict[int, str],
+    frames: list[int],
+    confidences: list[float],
+    seconds_per_frame: float,
+) -> list[tuple[str, float, float, float]]:
+    """Runs of identical frames into labelled spans, each with its own average
+    confidence.
+
+    Pure, and given every frame at once rather than a chunk at a time. The
+    model must run in chunks; this must not. A chord held across a chunk
+    boundary is one chord, and averaging its confidence per chunk gave spans
+    averaged over an empty list — which came out as a confident-looking 0.0.
+    """
+    labels: list[tuple[str, float, float, float]] = []
+    if not frames:
+        return labels
+
+    start_index = 0
+    for index in range(1, len(frames) + 1):
+        if index < len(frames) and frames[index] == frames[start_index]:
+            continue
+        run = confidences[start_index:index]
+        labels.append((
+            vocab[frames[start_index]],
+            seconds_per_frame * start_index,
+            seconds_per_frame * index,
+            float(np.mean(run)) if run else 0.0,
+        ))
+        start_index = index
+    return labels
+
+
 def labels_to_segments(
     labels: list[tuple[str, float, float, float]]
 ) -> list[ChordSegment]:
@@ -156,31 +209,30 @@ class BtcChordRecognizer:
         features = np.pad(features, ((0, pad), (0, 0)), mode="constant")
         instances = features.shape[0] // timestep
 
-        labels: list[tuple[str, float, float, float]] = []
+        # Every frame first, then one pass to build segments. The model has to
+        # run in chunks, but segment building must not: a chord running across
+        # a chunk boundary is one chord, and folding the boundary into the loop
+        # is how it came to report a confidence averaged over no frames at all.
+        frames: list[int] = []
+        confidences: list[float] = []
         with torch.no_grad():
             tensor = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
-            start_time = 0.0
-            previous: int | None = None
             for instance in range(instances):
                 chunk = tensor[:, timestep * instance:timestep * (instance + 1), :]
                 attended, _ = self._model.self_attn_layers(chunk)
-                prediction, _ = self._model.output_layer(attended)
-                prediction = prediction.squeeze()
-                for step in range(timestep):
-                    current = int(prediction[step].item())
-                    now = seconds_per_frame * (timestep * instance + step)
-                    if previous is None:
-                        previous = current
-                        continue
-                    if current != previous:
-                        labels.append((self._vocab[previous], start_time, now, 1.0))
-                        start_time = now
-                        previous = current
-            # Close the final segment, ignoring the zero-padded tail.
-            end_time = seconds_per_frame * (features.shape[0] - pad)
-            if previous is not None and end_time > start_time:
-                labels.append((self._vocab[previous], start_time, end_time, 1.0))
-        return labels
+                # output_projection rather than output_layer: the layer returns
+                # only its argmax indices and discards the probabilities, which
+                # is what left every chord marked perfectly certain.
+                logits = self._model.output_layer.output_projection(attended)
+                chunk_frames, chunk_confidence = decode_frames(
+                    torch.softmax(logits, dim=-1))
+                frames.extend(chunk_frames)
+                confidences.extend(chunk_confidence)
+
+        # Drop the zero-padded tail before it can become a chord.
+        real = features.shape[0] - pad
+        return frames_to_labels(
+            self._vocab, frames[:real], confidences[:real], seconds_per_frame)
 
 
 def _fetch_weights(destination: Path) -> Path:
