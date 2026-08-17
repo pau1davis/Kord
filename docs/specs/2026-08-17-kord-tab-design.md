@@ -213,22 +213,51 @@ compression flattens dynamics that onset detection relies on, and the added
 harmonics look like notes that were never played. Bass is expected to be good;
 guitar is the open question.
 
-Method: transcribe the nine separated songs, and score against passages
-transcribed by ear. Report per instrument:
+Ground truth is the hard part of measuring this, and the obvious answer —
+transcribe passages by ear — is not available: the agent doing the work cannot
+listen to audio. Three sources are used instead, none sufficient alone.
 
-- **Note recall** — how many played notes were found.
-- **Note precision** — how many reported notes were really played.
-- **Pitch accuracy** — of the notes found, how many at the right pitch.
-- **Onset timing** — median error in milliseconds.
+**A. Synthesised material, exact ground truth.** Known MIDI riffs rendered to
+audio, clean and through distortion, then transcribed. This is the only source
+giving unambiguous per-note truth, and it isolates the variable that is
+actually in question — whether distortion is what breaks `basic-pitch`. It
+does not prove anything about real recordings.
+
+**B. Chord agreement on the real library.** Kord already detects chords with a
+validated engine. On the nine separated songs, transcribed guitar notes are
+scored for membership of the chord detected at that moment. A note outside the
+sounding chord is not necessarily wrong — passing tones and suspensions are
+real — but a *rate* far above what music theory predicts means the engine is
+inventing notes. Automatable, and on the actual material.
+
+**C. One passage confirmed by the user.** A riff they know, checked against
+what Kord produces. Cheap for them, and it is the only source that closes the
+loop on real audio. Requested once, not as an ongoing burden.
+
+Reported per instrument, from A for the absolute figures and B for the
+realistic ones:
+
+- **Note recall** — how many played notes were found. (A)
+- **Note precision** — how many reported notes were really played. (A)
+- **Pitch accuracy** — of the notes found, how many at the right pitch. (A)
+- **Onset timing** — median error in milliseconds. (A)
+- **Out-of-chord rate** — share of notes foreign to the sounding chord. (B)
+- **Octave-error rate** — reported notes an exact octave from a detected one,
+  the classic transcription failure and invisible to chord agreement. (A, B)
 
 Thresholds agreed in advance, so the result cannot be rationalised after the
 fact:
 
 | Outcome | Action |
 |---|---|
-| Precision and recall ≥ 0.8 | Build the guitar tab as designed. |
+| Precision and recall ≥ 0.8 on distorted A | Build the guitar tab as designed. |
 | 0.5–0.8 | Build it, dimmed by confidence, with the measured figures shown in the UI. |
 | < 0.5 | **Do not build guitar tab.** Ship bass tab, and report what guitar cannot do. |
+
+Judged on the *distorted* synthesised material, not the clean. Clean guitar is
+the easy case and scoring well on it would say nothing about the library this
+is for. If B contradicts A — good synthetic scores against a high out-of-chord
+rate on real songs — B wins, because it is the real material.
 
 The measurement is written up as a note in `docs/notes/` whichever
 way it goes, in the manner of the tempo calibration — including the numbers
