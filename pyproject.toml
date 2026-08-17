@@ -9,6 +9,15 @@ dependencies = [
 
 [project.optional-dependencies]
 btc = ["torch>=2.2"]
+tab = [
+  "basic-pitch==0.4.0",
+  # basic-pitch pins resampy<0.4.3, and that pin cannot be honoured here:
+  # resampy 0.4.2 imports pkg_resources, which setuptools removed in 81.
+  # 0.4.3 exists precisely to drop that import, so the upper bound is stale
+  # rather than protective. Overriding it deliberately, because the
+  # alternative is pinning setuptools back below 81 for the whole project.
+  "resampy>=0.4.3",
+]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [build-system]
