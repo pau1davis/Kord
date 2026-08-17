@@ -143,3 +143,31 @@ export type Library = {
 
 export const getLibrary = () => json<Library>("/api/me/library");
 export const getRecent = () => json<TrackSummary[]>("/api/me/recent");
+
+export type TabState = "none" | "pending" | "running" | "done" | "failed" | "unavailable";
+
+export type TabStatus = {
+  status: TabState;
+  available: string[];
+  error: string | null;
+  progress: number;
+};
+
+export const getTabStatus = (id: string) =>
+  json<TabStatus>(`/api/track/${id}/tab`);
+
+export const requestTab = (id: string) =>
+  json<{ job_id: number; status: string }>(`/api/track/${id}/tab`, { method: "POST" });
+
+export const getTab = (id: string, part: string, tuning?: string) =>
+  json<import("./tab").TabResponse>(
+    `/api/track/${id}/tab/${encodeURIComponent(part)}`
+    + (tuning ? `?tuning=${encodeURIComponent(tuning)}` : ""));
+
+/** Tunings the player can pick from, grouped by instrument. */
+export const GUITAR_TUNINGS = [
+  "E standard", "Eb standard", "D standard", "Drop D", "Drop C",
+] as const;
+export const BASS_TUNINGS = [
+  "Bass standard", "Bass Eb", "Bass D", "Bass Drop D",
+] as const;

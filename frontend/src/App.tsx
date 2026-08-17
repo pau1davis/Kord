@@ -13,6 +13,7 @@ import { PlayAlong } from "./components/PlayAlong";
 import { SearchBar } from "./components/SearchBar";
 import { SongMap } from "./components/SongMap";
 import { StemMixer } from "./components/StemMixer";
+import { TabSheet } from "./components/TabSheet";
 import { TheoryPanel } from "./components/TheoryPanel";
 import "./styles.css";
 
@@ -167,6 +168,13 @@ export default function App() {
               </div>
               <ChordSheet entries={data.chart} onSeek={seekToChart} />
               <StemMixer trackId={track.id} onActiveChange={handleStemsActive} />
+              <TabSheet
+                trackId={track.id}
+                currentTime={chartTime(currentTime, data.sync_offset_ms ?? 0)}
+                onSeek={seekToChart}
+                playing={playing}
+                onPause={() => player?.pause()}
+              />
             </>
           )}
         </main>

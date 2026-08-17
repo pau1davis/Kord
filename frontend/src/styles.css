@@ -852,3 +852,82 @@ body {
 .theory .notes.quiet {
   opacity: 0.6; font-size: 0.8rem; line-height: 1.5; margin-bottom: 0.4rem;
 }
+
+/* ── Tab sheet ────────────────────────────────────────────── */
+
+.tabsheet { padding: 0 var(--gutter) var(--gutter); }
+
+.tabhead {
+  display: flex; align-items: center; gap: 0.75rem;
+  flex-wrap: wrap; margin-bottom: 0.75rem;
+}
+
+.tabparts { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+
+.tabparts .part {
+  background: transparent; border: 1px solid var(--line);
+  border-radius: 999px; color: var(--text-dim);
+  font: 500 0.78rem var(--body); padding: 0.3rem 0.7rem; cursor: pointer;
+}
+.tabparts .part:hover { color: var(--text); border-color: var(--brass); }
+.tabparts .part.on {
+  color: var(--ink); background: var(--brass); border-color: var(--brass);
+}
+
+.tuningpick select {
+  background: var(--ink-sunken); border: 1px solid var(--line);
+  border-radius: var(--radius); color: var(--text);
+  font: 400 0.8rem var(--mono); padding: 0.3rem 0.5rem;
+}
+
+/* Horizontal because tab reads left to right, and a song is far longer than
+   it is tall. Scrolling this is how you move through the song. */
+.tabscroll {
+  display: flex; gap: 0; overflow-x: auto; overflow-y: hidden;
+  padding: 0.5rem 0 0.75rem;
+  scrollbar-width: thin;
+  background: var(--ink-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.tab-slot {
+  position: relative; flex: none; cursor: pointer;
+  padding: 0.4rem 0.1rem 1.1rem;
+  border-right: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.tab-slot:hover { background: color-mix(in srgb, var(--brass) 7%, transparent); }
+
+.tab-num {
+  position: absolute; bottom: 0.25rem; left: 0.45rem;
+  font: 400 0.6rem var(--mono); color: var(--text-dim); opacity: 0.6;
+}
+
+.tab-bar { display: grid; gap: 1px; min-width: 2.5rem; }
+.tab-bar.now { background: color-mix(in srgb, var(--brass) 12%, transparent); }
+
+.tab-line {
+  display: flex; align-items: center; height: 1.05rem;
+  /* The stave line itself, drawn behind the numbers. */
+  background: linear-gradient(to bottom, transparent calc(50% - 0.5px),
+              var(--line) calc(50% - 0.5px), var(--line) calc(50% + 0.5px),
+              transparent calc(50% + 0.5px));
+}
+
+.tab-line .fret, .tab-line .gap {
+  font: 500 0.72rem var(--mono);
+  min-width: 1.15rem; text-align: center; flex: none;
+}
+.tab-line .fret {
+  color: var(--text);
+  background: var(--ink-sunken);   /* masks the stave line behind the digit */
+}
+/* Measured, not decorative: below 0.5 the transcriber was guessing. */
+.tab-line .unsure {
+  color: var(--text-dim); opacity: 0.55;
+  background: var(--ink-sunken);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabscroll { scroll-behavior: auto; }
+}
