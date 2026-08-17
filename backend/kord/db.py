@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS stem_job (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS stem_job_state_idx ON stem_job(state);
+CREATE TABLE IF NOT EXISTS tab_job (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    spotify_id TEXT NOT NULL,
+    state      TEXT NOT NULL DEFAULT 'pending',
+    error      TEXT,
+    progress   REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS tab_job_state_idx ON tab_job(state);
 """
 
 # Columns added after the first release; ALTER is idempotent-checked below.
@@ -342,3 +352,54 @@ def count_tracks_with_audio(conn) -> int:
     return conn.execute(
         "SELECT COUNT(*) c FROM track WHERE audio_ext IS NOT NULL"
     ).fetchone()["c"]
+
+
+def enqueue_tab_job(conn, spotify_id: str) -> int:
+    """Queue transcription, reusing any job that has not finished yet."""
+    row = conn.execute(
+        "SELECT id FROM tab_job WHERE spotify_id=? AND state IN "
+        "('pending','running') ORDER BY id DESC LIMIT 1",
+        (spotify_id,),
+    ).fetchone()
+    if row is not None:
+        return row["id"]
+    cursor = conn.execute(
+        "INSERT INTO tab_job (spotify_id) VALUES (?)", (spotify_id,))
+    conn.commit()
+    return cursor.lastrowid
+
+
+def claim_tab_job(conn):
+    row = conn.execute(
+        "SELECT * FROM tab_job WHERE state='pending' ORDER BY id LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return None
+    conn.execute(
+        "UPDATE tab_job SET state='running', updated_at=datetime('now') "
+        "WHERE id=?", (row["id"],))
+    conn.commit()
+    return row
+
+
+def set_tab_progress(conn, job_id: int, fraction: float) -> None:
+    conn.execute(
+        "UPDATE tab_job SET progress=?, updated_at=datetime('now') WHERE id=?",
+        (max(0.0, min(1.0, fraction)), job_id))
+    conn.commit()
+
+
+def finish_tab_job(conn, job_id: int, state: str, error: str | None = None) -> None:
+    # Completing the progress too: a finished job still reading 60% looks like
+    # it is still working.
+    conn.execute(
+        "UPDATE tab_job SET state=?, error=?, progress=1.0, "
+        "updated_at=datetime('now') WHERE id=?", (state, error, job_id))
+    conn.commit()
+
+
+def tab_job_for(conn, spotify_id: str):
+    return conn.execute(
+        "SELECT * FROM tab_job WHERE spotify_id=? ORDER BY id DESC LIMIT 1",
+        (spotify_id,),
+    ).fetchone()
