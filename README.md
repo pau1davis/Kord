@@ -50,13 +50,19 @@ recognises major and minor triads only. The worker log says which engine is acti
 Starts the API, the analysis worker and the UI together; Ctrl-C stops all three.
 Open the URL it prints and connect Spotify at <http://127.0.0.1:8000/api/auth/login>.
 
-To run them separately instead:
+To run them separately instead — one terminal each, and note the first line:
+nothing else loads `.env`, and without it the API refuses to start.
 
 ```bash
+set -a; source .env; set +a
+
 .venv/bin/uvicorn kord.app:build_app --factory --port 8000 --app-dir backend
 .venv/bin/python -m kord.queue
 cd frontend && npm run dev
 ```
+
+All three are needed. Without the worker the API still answers and the UI still
+loads, but no song ever finishes analysing.
 
 ## How a lookup goes
 

@@ -426,6 +426,15 @@ body {
 }
 
 .empty p { color: var(--text-dim); margin: 0; }
+.empty p + p { margin-top: 0.75rem; }
+.empty code {
+  font-family: ui-monospace, monospace; font-size: 0.9em; color: var(--brass);
+}
+.empty a {
+  color: var(--brass); text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--brass) 45%, transparent);
+}
+.empty a:hover { border-bottom-color: var(--brass); }
 
 @media (prefers-reduced-motion: reduce) {
   .mood-field .blob,

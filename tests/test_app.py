@@ -5,9 +5,13 @@ from kord import db
 from kord.app import create_app
 from kord.config import Settings
 from kord.models import Analysis, BeatGrid, ChordSegment, KeyEstimate
+from kord.spotify import SpotifyError
 
 
 class FakeSpotify:
+    async def refresh(self, refresh_token):
+        return {"access_token": "fresh", "expires_in": 3600}
+
     async def search_tracks(self, query, token, limit=20):
         return [{"id": "t1", "title": "Creep", "artist": "Radiohead",
                  "album": "Pablo Honey", "duration_ms": 238640, "image": None}]
@@ -177,6 +181,23 @@ def test_build_app_is_a_zero_argument_uvicorn_factory(tmp_path, monkeypatch):
     client = TestClient(app)
     assert client.get("/api/health").json()["status"] == "ok"
     assert client.get("/api/auth/status").json()["authenticated"] is False
+
+
+@pytest.mark.parametrize("client_id", ["", "your_client_id_here"])
+def test_build_app_refuses_to_start_without_a_client_id(
+        tmp_path, monkeypatch, client_id):
+    """Starting uvicorn directly skips run.sh, and with it the `source .env`.
+
+    The app then came up looking healthy and signed in while every token
+    refresh went to Spotify with an empty client id and was refused. Failing at
+    startup costs one line of output instead of an afternoon.
+    """
+    from kord.app import build_app
+
+    monkeypatch.setenv("KORD_HOME", str(tmp_path))
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", client_id)
+    with pytest.raises(RuntimeError, match="SPOTIFY_CLIENT_ID"):
+        build_app()
 
 
 class TokenSpotify(FakeSpotify):
@@ -398,6 +419,47 @@ def test_auth_status_is_disconnected_when_the_token_died_unrefreshably(
     """The failure that stranded the UI: status said connected, every search 401d."""
     client = _session_client(tmp_path, monkeypatch, "stale", None, -10)
     assert client.get("/api/auth/status").json()["authenticated"] is False
+
+
+class UnrefreshableSpotify(FakeSpotify):
+    """Spotify refuses the refresh — a revoked grant, or an app started with no
+    client id, which posts the refresh with an empty one."""
+
+    async def refresh(self, refresh_token):
+        raise SpotifyError(400, "invalid_client")
+
+
+def test_auth_status_is_disconnected_when_the_refresh_is_refused(
+        tmp_path, monkeypatch):
+    """Holding a refresh token is not the same as being able to use it.
+
+    Status inferred "connected" from the token merely existing, so it kept
+    reporting a live session while every /api/me call 401d on the refresh.
+    """
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "stale", "rt", -10)
+    client = TestClient(create_app(settings_for(tmp_path), UnrefreshableSpotify(), conn))
+
+    assert client.get("/api/me/top").status_code == 401
+    assert client.get("/api/auth/status").json()["authenticated"] is False
+
+
+def test_auth_status_agrees_with_what_a_real_call_does(tmp_path, monkeypatch):
+    """Whatever the session, the two must never disagree — that gap is the bug."""
+    for access, refresh, expires_in in [
+        ("good", "rt", 3600), ("stale", "rt", -10), ("stale", None, -10),
+    ]:
+        monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+        conn = db.connect(":memory:")
+        db.init_schema(conn)
+        db.save_session(conn, access, refresh, expires_in)
+        client = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+
+        status = client.get("/api/auth/status").json()["authenticated"]
+        works = client.get("/api/me/top").status_code == 200
+        assert status is works, f"{access}/{refresh}: status {status}, call {works}"
 
 
 def test_audio_endpoint_pins_m4a_to_audio_mp4(tmp_path, monkeypatch):

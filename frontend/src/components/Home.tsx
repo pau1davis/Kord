@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  analyzeTop, getLibrary, getRecent, getTaste, getTopTracks,
+  analyzeTop, ApiError, getLibrary, getRecent, getTaste, getTopTracks,
   type Library, type Taste, type TrackSummary,
 } from "../api";
 import { MoodRing } from "./MoodRing";
@@ -36,14 +36,20 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
   const [taste, setTaste] = useState<Taste | null>(null);
   const [library, setLibrary] = useState<Library | null>(null);
   const [recent, setRecent] = useState<TrackSummary[]>([]);
-  const [failed, setFailed] = useState(false);
+  // Not a boolean: "your account isn't connected" and "the server didn't
+  // answer" ask for different things from the reader, and telling someone to
+  // reconnect Spotify when the backend is down sends them off to fix the one
+  // thing that was never broken.
+  const [problem, setProblem] = useState<ApiError | null>(null);
 
   // Art first: this needs metadata only, so it is on screen immediately.
   useEffect(() => {
     let live = true;
     getTopTracks()
       .then((list) => { if (live) setTracks(list); })
-      .catch(() => { if (live) setFailed(true); });
+      .catch((e) => {
+        if (live) setProblem(e instanceof ApiError ? e : new ApiError(0, String(e)));
+      });
     // Queue whatever has not been analysed. Safe to call repeatedly, and it
     // retries anything that failed to download last time.
     analyzeTop().catch(() => {});
@@ -71,11 +77,23 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
     return () => { live = false; window.clearTimeout(timer); };
   }, []);
 
-  if (failed) {
-    return (
+  if (problem) {
+    return problem.status === 401 ? (
       <div className="empty">
         <h2>Connect your Spotify account.</h2>
         <p>Kord builds this page from the music you actually listen to.</p>
+        <p className="hint">
+          <a href="/api/auth/login">Connect Spotify</a>
+        </p>
+      </div>
+    ) : (
+      <div className="empty">
+        <h2>Kord couldn't load your music.</h2>
+        <p>{problem.message}</p>
+        <p className="hint">
+          Your account is fine — this is the app, not Spotify. Start it with
+          <code> ./run.sh</code> and reload.
+        </p>
       </div>
     );
   }

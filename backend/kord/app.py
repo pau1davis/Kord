@@ -105,6 +105,17 @@ def build_app() -> FastAPI:
     from kord.spotify import SpotifyClient
 
     settings = Settings.from_env()
+    # run.sh sources .env and checks this before starting anything. Launching
+    # uvicorn directly — which the README documents — does neither, and the app
+    # then starts looking perfectly healthy: /api/health is fine, the stored
+    # session is still there, and only the token refresh fails, because it goes
+    # to Spotify with an empty client id. Refusing to start says in one line
+    # what that costs an afternoon to work out.
+    if settings.spotify_client_id in ("", "your_client_id_here"):
+        raise RuntimeError(
+            "SPOTIFY_CLIENT_ID is not set. Either start Kord with ./run.sh, "
+            "which loads .env for you, or export it first:\n"
+            "    set -a; source .env; set +a")
     conn = db.connect(settings.db_path)
     db.init_schema(conn)
     return create_app(settings, SpotifyClient(settings.spotify_client_id), conn)
@@ -169,13 +180,21 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
     @app.get("/api/auth/status")
     async def auth_status():
-        # "Can we actually call Spotify?", not "is a token cached?". A cached
-        # token that has since expired would otherwise report connected while
-        # every search 401s, and a refreshable session would report signed out.
-        session = db.load_session(conn)
-        usable = bool(
-            session and (not session["expired"] or session["refresh_token"]))
-        return {"authenticated": usable}
+        # Answer by doing what a real request does, rather than by predicting
+        # it. Every previous version reasoned about the stored session instead
+        # — most recently "a refresh token exists, so a refresh will work" —
+        # and each time the prediction drifted from require_token, the UI
+        # reported a live session while every call 401d. There is nothing to
+        # keep in step if there is only one implementation.
+        #
+        # A refresh costs one request to Spotify, and only once an hour when
+        # the access token has actually expired; the new token is saved, so the
+        # call this replaces would have had to make it anyway.
+        try:
+            await require_token()
+        except HTTPException:
+            return {"authenticated": False}
+        return {"authenticated": True}
 
     @app.get("/api/auth/login")
     async def login():
