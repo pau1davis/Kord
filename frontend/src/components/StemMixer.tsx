@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getStems, requestStems, type StemState } from "../api";
 import { createStemPlayer, type StemPlayer } from "../stemPlayer";
-import { isSeparating, STEM_ORDER } from "../stems";
+import { isSeparating } from "../stems";
 
 function timecode(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -155,7 +155,11 @@ export function StemMixer({
     );
   }
 
-  const ordered = STEM_ORDER.filter((name) => available.includes(name));
+  // The player's list, not the server's: a double-tracked guitar arrives as
+  // one stem and becomes two faders, so only the player knows what there is
+  // to hear. Already in display order.
+  const ordered = player.names;
+  const doubled = ordered.filter((n) => n.startsWith("guitar (")).length > 1;
 
   return (
     <div className="stems">
@@ -193,6 +197,14 @@ export function StemMixer({
         Pick the parts you want to hear. They all run together, so switching one
         on drops it in where the song already is.
       </p>
+
+      {doubled && (
+        <p className="hint quiet">
+          This song's rhythm guitar was recorded twice and panned apart, so the
+          two takes are separate parts. Solo one to hear a single guitarist
+          playing it — usually easier to follow than both at once.
+        </p>
+      )}
 
       <ul className="mixer">
         {ordered.map((name) => {

@@ -1,5 +1,85 @@
 import { describe, expect, it } from "vitest";
-import { elapsedAt, gainsFor, isSeparating, STEM_ORDER } from "./stems";
+import {
+  baseStem, correlation, elapsedAt, gainsFor, isSeparating, orderParts,
+  partNames, STEM_ORDER,
+} from "./stems";
+
+describe("correlation", () => {
+  const ramp = (n: number, f: (i: number) => number) =>
+    Float32Array.from({ length: n }, (_, i) => f(i));
+
+  it("is 1 for the same signal in both channels", () => {
+    const a = ramp(4096, (i) => Math.sin(i / 7));
+    expect(correlation(a, a)).toBeCloseTo(1, 5);
+  });
+
+  it("is -1 for a polarity-flipped channel", () => {
+    const a = ramp(4096, (i) => Math.sin(i / 7));
+    const b = ramp(4096, (i) => -Math.sin(i / 7));
+    expect(correlation(a, b)).toBeCloseTo(-1, 5);
+  });
+
+  it("is near zero for two unrelated performances", () => {
+    const a = ramp(8192, (i) => Math.sin(i / 7));
+    const b = ramp(8192, (i) => Math.sin(i / 13 + 1.1));
+    expect(Math.abs(correlation(a, b))).toBeLessThan(0.3);
+  });
+
+  it("calls a silent channel identical rather than uncorrelated", () => {
+    // Silence has no shape to compare, and a zero here would advertise a
+    // second guitar that is not there.
+    const a = ramp(4096, (i) => Math.sin(i / 7));
+    expect(correlation(a, new Float32Array(4096))).toBe(1);
+  });
+});
+
+describe("partNames", () => {
+  it("splits a double-tracked guitar into its two takes", () => {
+    expect(partNames("guitar", 2, 0.0)).toEqual(
+      ["guitar (left)", "guitar (right)"]);
+  });
+
+  it("leaves a single guitar alone", () => {
+    // Superdrag's Cynicality reads 1.00 — one take, panned centre.
+    expect(partNames("guitar", 2, 1.0)).toEqual(["guitar"]);
+  });
+
+  it("treats a polarity-flipped copy as one take, not two", () => {
+    // Strong negative correlation means the same performance with its phase
+    // inverted — a mixing accident, not a second guitarist.
+    expect(partNames("guitar", 2, -0.9)).toEqual(["guitar"]);
+    expect(partNames("guitar", 2, -0.1)).toHaveLength(2);
+  });
+
+  it("never splits a mono stem", () => {
+    expect(partNames("guitar", 1, 0.0)).toEqual(["guitar"]);
+  });
+
+  it("never splits drums, however wide they are", () => {
+    // Overheads are decorrelated too, but they are one kit from two places,
+    // not two performances.
+    expect(partNames("drums", 2, 0.0)).toEqual(["drums"]);
+    expect(partNames("vocals", 2, 0.0)).toEqual(["vocals"]);
+  });
+});
+
+describe("orderParts", () => {
+  it("keeps STEM_ORDER and puts a split guitar's halves first and adjacent", () => {
+    expect(orderParts(["drums", "guitar (right)", "bass", "guitar (left)"]))
+      .toEqual(["guitar (left)", "guitar (right)", "bass", "drums"]);
+  });
+
+  it("puts anything unrecognised at the end rather than dropping it", () => {
+    expect(orderParts(["mystery", "bass"])).toEqual(["bass", "mystery"]);
+  });
+});
+
+describe("baseStem", () => {
+  it("reads through to the instrument", () => {
+    expect(baseStem("guitar (left)")).toBe("guitar");
+    expect(baseStem("bass")).toBe("bass");
+  });
+});
 
 describe("isSeparating", () => {
   it("covers the whole of the wait, not just the running part", () => {
