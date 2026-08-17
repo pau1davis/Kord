@@ -6,10 +6,12 @@ enforced by a test in tests/test_source.py, not by discipline.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import yt_dlp
 
+from kord.audio.throttle import Throttle, looks_refused
 from kord.models import AudioCandidate
 
 # m4a first: YouTube's WebM/Opus carries no seek index and no stream duration,
@@ -17,14 +19,35 @@ from kord.models import AudioCandidate
 # stem separation. The fallback keeps songs offering no m4a working.
 DOWNLOAD_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
 
+log = logging.getLogger("kord.youtube")
+
 
 class YouTubeAudioSource:
     # Wider than it needs to be for one good result. Live takes, covers,
     # lessons and reaction videos all rank highly for a well known song, and
     # they are all discarded before a download is attempted (validate.py), so
     # a narrow search can come back with nothing usable at all.
-    def __init__(self, max_results: int = 12) -> None:
+    def __init__(self, max_results: int = 12, throttle: Throttle | None = None) -> None:
         self.max_results = max_results
+        # One throttle across searches and downloads, because YouTube counts
+        # them against the same caller. Held on the instance so the worker's
+        # single source paces the whole queue, not each song in isolation.
+        self.throttle = throttle or Throttle()
+
+    def _guarded(self, call):
+        """Pace a call, and back off harder if we are being turned away."""
+        self.throttle.wait()
+        try:
+            result = call()
+        except Exception as error:
+            if looks_refused(error):
+                self.throttle.refused()
+                log.warning(
+                    "provider refused us; next request held for %.0fs",
+                    self.throttle.penalty_s)
+            raise
+        self.throttle.succeeded()
+        return result
 
     def search(self, artist: str, title: str) -> list[AudioCandidate]:
         query = f"ytsearch{self.max_results}:{artist} {title}"
@@ -32,8 +55,11 @@ class YouTubeAudioSource:
             "quiet": True, "no_warnings": True, "skip_download": True,
             "extract_flat": False, "noplaylist": True,
         }
-        with yt_dlp.YoutubeDL(options) as ydl:
-            info = ydl.extract_info(query, download=False)
+        def run():
+            with yt_dlp.YoutubeDL(options) as ydl:
+                return ydl.extract_info(query, download=False)
+
+        info = self._guarded(run)
         return [
             AudioCandidate(
                 path=None,
@@ -52,6 +78,9 @@ class YouTubeAudioSource:
             "quiet": True, "no_warnings": True, "format": DOWNLOAD_FORMAT,
             "outtmpl": template, "noplaylist": True,
         }
-        with yt_dlp.YoutubeDL(options) as ydl:
-            info = ydl.extract_info(candidate.url, download=True)
-            return Path(ydl.prepare_filename(info))
+        def run():
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(candidate.url, download=True)
+                return Path(ydl.prepare_filename(info))
+
+        return self._guarded(run)

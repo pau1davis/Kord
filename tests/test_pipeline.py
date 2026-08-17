@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -238,3 +239,54 @@ def test_raises_when_every_candidate_fails_to_download(tmp_path):
     ])
     with pytest.raises(NoAudioFound, match="could not be downloaded"):
         build(tmp_path, source).run("t1", "Artist", "Title", 4000)
+
+
+def test_every_candidate_refused_is_reported_as_worth_retrying():
+    """A DRM-protected upload and a rate-limited provider both answer 403, and
+    one attempt cannot tell them apart. Every candidate refused is the
+    signature of the second: it is about us, not about any of the videos, so
+    the song is not hopeless — it is worth another pass later."""
+    from kord.analysis.pipeline import AnalysisPipeline, NoAudioFound
+    from kord.models import AudioCandidate
+
+    attempts = []
+
+    class RefusingSource:
+        def search(self, artist, title):
+            return [AudioCandidate(None, f"u{i}", 200_000, "A Song") for i in range(3)]
+
+        def download(self, candidate, dest_dir):
+            attempts.append(candidate.url)
+            raise RuntimeError("ERROR: unable to download: HTTP Error 403: Forbidden")
+
+    pipeline = AnalysisPipeline(
+        source=RefusingSource(), recognizer=None,
+        scratch_dir=Path(tempfile.mkdtemp()), engine_version="chroma-1")
+
+    with pytest.raises(NoAudioFound, match="refusing"):
+        pipeline.run("t1", "Some Band", "A Song", 200_000)
+    assert attempts == ["u0", "u1", "u2"]
+
+
+def test_an_ordinary_download_failure_still_tries_the_next_candidate():
+    """A deleted or private video says nothing about the others."""
+    from kord.analysis.pipeline import AnalysisPipeline, NoAudioFound
+    from kord.models import AudioCandidate
+
+    attempts = []
+
+    class BrokenSource:
+        def search(self, artist, title):
+            return [AudioCandidate(None, f"u{i}", 200_000, "A Song") for i in range(3)]
+
+        def download(self, candidate, dest_dir):
+            attempts.append(candidate.url)
+            raise RuntimeError("ERROR: [youtube] x: This video is not available")
+
+    pipeline = AnalysisPipeline(
+        source=BrokenSource(), recognizer=None,
+        scratch_dir=Path(tempfile.mkdtemp()), engine_version="chroma-1")
+
+    with pytest.raises(NoAudioFound):
+        pipeline.run("t1", "Some Band", "A Song", 200_000)
+    assert attempts == ["u0", "u1", "u2"]

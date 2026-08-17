@@ -14,6 +14,7 @@ from kord.analysis.sections import detect_sections
 from kord.analysis.timbre import heaviness as measure_heaviness
 from kord.analysis.tuning import estimate_reference
 from kord.audio.decode import SAMPLE_RATE, decode_to_wav, trim_leading_silence
+from kord.audio.throttle import looks_refused
 from kord.audio.validate import rank_candidates
 from kord.models import Analysis, Tuning
 from kord.theory.qualities import NO_CHORD
@@ -53,14 +54,26 @@ class AnalysisPipeline:
         — DRM on official uploads, region blocks, deleted videos — so a failure
         here means "try the next one", not "this song has no audio".
         """
+        refusals = 0
         for candidate, tier, ratio in ranked:
             try:
                 return candidate, tier, ratio, Path(
                     self.source.download(candidate, work_dir))
-            except Exception:
+            except Exception as error:
+                refusals += bool(looks_refused(error))
                 log.warning(
                     "could not download %s, trying the next candidate",
                     candidate.url, exc_info=True)
+
+        # A DRM-protected upload and a rate-limited provider both answer 403,
+        # and one attempt cannot tell them apart. The pattern can: a refusal
+        # that lets the next candidate through was about that video, while
+        # every candidate refused is about us. Reported separately because the
+        # first means this song has no audio and the second means try later.
+        if refusals and refusals == len(ranked):
+            raise NoAudioFound(
+                f"{artist} - {title} could not be downloaded: the provider is "
+                f"refusing requests, so this is worth retrying later")
         raise NoAudioFound(
             f"every candidate for {artist} - {title} could not be downloaded")
 
