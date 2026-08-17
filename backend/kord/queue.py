@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import tempfile
 import time
+from pathlib import Path
 
 from kord import db
 from kord.analysis.pipeline import NoAudioFound
+from kord.tab.bass import transcribe_bass
+from kord.tab.channels import split_channels
+from kord.tab.guitar import transcribe_guitar
 
 log = logging.getLogger("kord.worker")
 
@@ -122,8 +128,56 @@ def run_one_stem_job(conn, separator, audio_store, stem_store) -> str | None:
     return "done"
 
 
+def run_one_tab_job(conn, tab_store, stem_store) -> str | None:
+    """Transcribe one queued song's parts. Returns the state, or None if idle.
+
+    Like separation, this is an extra on top of a song that already works: a
+    failure records itself and leaves the analysis, the audio and the stems
+    completely untouched.
+    """
+    job = db.claim_tab_job(conn)
+    if job is None:
+        return None
+
+    spotify_id = job["spotify_id"]
+    bass_path = stem_store.path_for(spotify_id, "bass")
+    guitar_path = stem_store.path_for(spotify_id, "guitar")
+    if bass_path is None and guitar_path is None:
+        db.finish_tab_job(
+            conn, job["id"], "unavailable",
+            "no separated parts to transcribe; separate the parts first")
+        return "unavailable"
+
+    scratch = Path(tempfile.mkdtemp(prefix=f"kord-tab-{spotify_id}-"))
+    try:
+        # Built first so progress can be a real fraction rather than a guess:
+        # a double-tracked song has three parts to get through, not two.
+        work: list[tuple[str, Path]] = []
+        if bass_path is not None:
+            work.append(("bass", bass_path))
+        if guitar_path is not None:
+            work.extend(split_channels(guitar_path, scratch))
+
+        for done, (part, path) in enumerate(work):
+            events = (transcribe_bass(path) if part == "bass"
+                      else transcribe_guitar(path))
+            tab_store.save(spotify_id, part, events)
+            db.set_tab_progress(conn, job["id"], (done + 1) / len(work))
+    except Exception as exc:
+        log.warning("transcription failed for %s", spotify_id, exc_info=True)
+        db.finish_tab_job(
+            conn, job["id"], "failed", f"{type(exc).__name__}: {exc}")
+        return "failed"
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+    db.finish_tab_job(conn, job["id"], "done")
+    return "done"
+
+
 def worker_loop(
-    conn, pipeline, separator=None, stem_store=None, poll_seconds: float = 2.0
+    conn, pipeline, separator=None, stem_store=None, tab_store=None,
+    poll_seconds: float = 2.0,
 ) -> None:
     log.info("kord worker started")
     while True:
@@ -134,6 +188,10 @@ def worker_loop(
             did_work = run_one_stem_job(
                 conn, separator, pipeline.audio_store, stem_store
             ) is not None or did_work
+        # Tab is an extra on top of the stems, so it comes last of the three.
+        if tab_store is not None and stem_store is not None:
+            did_work = run_one_tab_job(
+                conn, tab_store, stem_store) is not None or did_work
         if not did_work:
             time.sleep(poll_seconds)
 
@@ -146,6 +204,7 @@ def main() -> None:
     from kord.audio.store import AudioStore
     from kord.audio.youtube import YouTubeAudioSource
     from kord.config import Settings
+    from kord.tab.store import TabStore
     from kord.engine import build_recognizer
 
     settings = Settings.from_env()
@@ -165,6 +224,7 @@ def main() -> None:
         conn, pipeline,
         separator=DemucsSeparator(),
         stem_store=StemStore(settings.stems_dir),
+        tab_store=TabStore(settings.tabs_dir),
     )
 
 

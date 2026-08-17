@@ -311,3 +311,87 @@ def test_stem_job_reports_progress_as_it_goes(conn, tmp_path):
     assert seen == [0.25, 0.5, 0.75]
     assert db.stem_job_for(conn, "t1")["progress"] == 1.0
     assert job_id
+
+
+def test_a_tab_job_transcribes_the_bass_and_saves_it(tmp_path, monkeypatch):
+    """The join this task exists for: stems in, note events on disk."""
+    import numpy as np
+    import soundfile as sf
+
+    from kord.audio.stem_store import StemStore
+    from kord.queue import run_one_tab_job
+    from kord.tab.events import NoteEvent
+    from kord.tab.store import TabStore
+
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+
+    stem_store = StemStore(tmp_path / "stems")
+    stem_store.dir_for("t1").mkdir(parents=True)
+    sr = 22050
+    t = np.arange(sr) / sr
+    # Contents are irrelevant — transcribe_bass is stubbed below. The file only
+    # has to exist, because that is all StemStore.path_for checks.
+    sf.write(stem_store.dir_for("t1") / "bass.m4a",
+             np.sin(2 * np.pi * 110.0 * t).astype(np.float32), sr, format="WAV")
+
+    tab_store = TabStore(tmp_path / "tabs")
+    monkeypatch.setattr("kord.queue.transcribe_bass",
+                        lambda path, **kw: [NoteEvent(0.0, 0.5, 45, 0.9)])
+    db.enqueue_tab_job(conn, "t1")
+
+    assert run_one_tab_job(conn, tab_store, stem_store) == "done"
+    assert tab_store.load("t1", "bass") == [NoteEvent(0.0, 0.5, 45, 0.9)]
+    assert db.tab_job_for(conn, "t1")["progress"] == 1.0
+
+
+def test_a_tab_job_without_stems_is_unavailable_not_a_crash(tmp_path):
+    from kord.audio.stem_store import StemStore
+    from kord.queue import run_one_tab_job
+    from kord.tab.store import TabStore
+
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.enqueue_tab_job(conn, "t1")
+    state = run_one_tab_job(
+        conn, TabStore(tmp_path / "tabs"), StemStore(tmp_path / "stems"))
+    assert state == "unavailable"
+    assert "separate" in db.tab_job_for(conn, "t1")["error"].lower()
+
+
+def test_an_idle_tab_queue_returns_none(tmp_path):
+    from kord.audio.stem_store import StemStore
+    from kord.queue import run_one_tab_job
+    from kord.tab.store import TabStore
+
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    assert run_one_tab_job(
+        conn, TabStore(tmp_path / "tabs"), StemStore(tmp_path / "stems")) is None
+
+
+def test_a_failing_engine_records_the_error_and_does_not_raise(tmp_path, monkeypatch):
+    """Transcription is an extra on top of a song that already works: a failure
+    must leave the analysis, the audio and the stems untouched."""
+    import numpy as np
+    import soundfile as sf
+
+    from kord.audio.stem_store import StemStore
+    from kord.queue import run_one_tab_job
+    from kord.tab.store import TabStore
+
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    stem_store = StemStore(tmp_path / "stems")
+    stem_store.dir_for("t1").mkdir(parents=True)
+    sf.write(stem_store.dir_for("t1") / "bass.m4a",
+             np.zeros(22050, dtype=np.float32), 22050, format="WAV")
+
+    def boom(path, **kw):
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr("kord.queue.transcribe_bass", boom)
+    db.enqueue_tab_job(conn, "t1")
+
+    assert run_one_tab_job(conn, TabStore(tmp_path / "tabs"), stem_store) == "failed"
+    assert "model exploded" in db.tab_job_for(conn, "t1")["error"]

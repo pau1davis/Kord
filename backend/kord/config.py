@@ -17,6 +17,7 @@ class Settings:
     audio_dir: Path
     audio_cap_bytes: int
     stems_dir: Path
+    tabs_dir: Path
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -36,6 +37,10 @@ class Settings:
         # explicit request, so this stays empty for most installs.
         stems = root / "stems"
         stems.mkdir(exist_ok=True)
+        # Transcribed notes, one directory per song. Like stems, only ever
+        # written on explicit request.
+        tabs = root / "tabs"
+        tabs.mkdir(exist_ok=True)
         cap_gb = float(os.environ.get("KORD_AUDIO_CAP_GB", "2"))
         return cls(
             spotify_client_id=os.environ.get("SPOTIFY_CLIENT_ID", ""),
@@ -54,4 +59,5 @@ class Settings:
             audio_dir=audio,
             audio_cap_bytes=int(cap_gb * 1024 ** 3),
             stems_dir=stems,
+            tabs_dir=tabs,
         )

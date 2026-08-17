@@ -37,9 +37,11 @@ def settings_for(tmp_path):
     audio.mkdir(exist_ok=True)
     stems = tmp_path / "stems"
     stems.mkdir(exist_ok=True)
+    tabs = tmp_path / "tabs"
+    tabs.mkdir(exist_ok=True)
     return Settings("cid", "http://127.0.0.1:8000/api/auth/callback",
                     tmp_path / "x.db", tmp_path, "chroma-1", models,
-                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3, stems)
+                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3, stems, tabs)
 
 
 @pytest.fixture
@@ -655,3 +657,101 @@ def test_an_analysis_from_before_tuning_existed_has_none():
     analysis = _analysis_with_tuning(0.0, 0.0)
     object.__setattr__(analysis, "tuning", None)
     assert render_analysis(analysis)["tuning"] is None
+
+
+def _tab_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    settings = settings_for(tmp_path)
+    return TestClient(create_app(settings, FakeSpotify(), conn)), settings, conn
+
+
+def test_tab_for_a_part_comes_back_as_positions(tmp_path, monkeypatch):
+    """The endpoint's job: stored notes plus a chosen tuning become frets."""
+    from kord.tab.events import NoteEvent
+    from kord.tab.store import TabStore
+
+    c, settings, _ = _tab_client(tmp_path, monkeypatch)
+    TabStore(settings.tabs_dir).save("t1", "bass", [NoteEvent(0.0, 0.5, 28, 0.9)])
+
+    body = c.get("/api/track/t1/tab/bass?tuning=Bass+standard").json()
+    assert body["notes"][0]["string"] == 0
+    assert body["notes"][0]["fret"] == 0
+    assert body["strings"] == 4
+
+
+def test_the_same_notes_move_frets_when_the_tuning_changes(tmp_path, monkeypatch):
+    from kord.tab.events import NoteEvent
+    from kord.tab.store import TabStore
+
+    c, settings, _ = _tab_client(tmp_path, monkeypatch)
+    TabStore(settings.tabs_dir).save("t1", "guitar", [NoteEvent(0.0, 0.5, 38, 0.9)])
+
+    # D2 is unplayable in E standard and open in Drop D.
+    standard = c.get("/api/track/t1/tab/guitar?tuning=E+standard").json()
+    dropped = c.get("/api/track/t1/tab/guitar?tuning=Drop+D").json()
+    assert standard["notes"][0]["fret"] is None
+    assert standard["unplayable"] == 1
+    assert dropped["notes"][0]["fret"] == 0
+    assert dropped["unplayable"] == 0
+
+
+def test_an_unknown_tuning_is_rejected_rather_than_guessed(tmp_path, monkeypatch):
+    c, _, _ = _tab_client(tmp_path, monkeypatch)
+    assert c.get("/api/track/t1/tab/bass?tuning=Klingon").status_code == 400
+
+
+def test_an_unknown_part_is_rejected(tmp_path, monkeypatch):
+    c, _, _ = _tab_client(tmp_path, monkeypatch)
+    assert c.get("/api/track/t1/tab/tuba").status_code == 400
+
+
+def test_each_part_defaults_to_the_tuning_its_instrument_uses(tmp_path, monkeypatch):
+    """Asking for bass without naming a tuning must not answer in guitar
+    tuning — every fret would be wrong and nothing would say so."""
+    from kord.tab.events import NoteEvent
+    from kord.tab.store import TabStore
+
+    c, settings, _ = _tab_client(tmp_path, monkeypatch)
+    TabStore(settings.tabs_dir).save("t1", "bass", [NoteEvent(0.0, 0.5, 28, 0.9)])
+    body = c.get("/api/track/t1/tab/bass").json()
+    assert body["tuning"] == "Bass standard"
+    assert body["notes"][0]["fret"] == 0
+
+
+def test_tab_status_reports_nothing_before_anything_is_asked(tmp_path, monkeypatch):
+    c, _, _ = _tab_client(tmp_path, monkeypatch)
+    assert c.get("/api/track/t1/tab").json()["status"] == "none"
+
+
+def test_asking_for_tab_without_stems_is_refused_with_a_reason(tmp_path, monkeypatch):
+    c, _, _ = _tab_client(tmp_path, monkeypatch)
+    response = c.post("/api/track/t1/tab")
+    assert response.status_code == 409
+    assert "separate" in response.json()["detail"].lower()
+
+
+def test_asking_for_tab_with_stems_queues_a_job(tmp_path, monkeypatch):
+    from kord.audio.stem_store import StemStore
+
+    c, settings, conn = _tab_client(tmp_path, monkeypatch)
+    stems = StemStore(settings.stems_dir)
+    stems.dir_for("t1").mkdir(parents=True)
+    (stems.dir_for("t1") / "bass.m4a").write_bytes(b"not really audio")
+
+    assert c.post("/api/track/t1/tab").json()["status"] == "pending"
+    assert c.get("/api/track/t1/tab").json()["status"] == "pending"
+    assert db.tab_job_for(conn, "t1") is not None
+
+
+def test_tab_status_is_done_once_a_part_exists(tmp_path, monkeypatch):
+    from kord.tab.events import NoteEvent
+    from kord.tab.store import TabStore
+
+    c, settings, _ = _tab_client(tmp_path, monkeypatch)
+    TabStore(settings.tabs_dir).save("t1", "bass", [NoteEvent(0.0, 0.5, 28, 0.9)])
+    body = c.get("/api/track/t1/tab").json()
+    assert body["status"] == "done"
+    assert body["available"] == ["bass"]
