@@ -55,6 +55,7 @@ export type TrackResponse = {
   beats?: number[];
   tuning?: Tuning | null;
   /** True when this came from an older engine and an upgrade is queued. */
+  tempo_factor?: number;
   stale_engine?: boolean;
   engine?: string;
 };
@@ -174,3 +175,8 @@ export const GUITAR_TUNINGS = [
 export const BASS_TUNINGS = [
   "Bass standard", "Bass Eb", "Bass D", "Bass Drop D",
 ] as const;
+
+/** Halve, restore or double a song's tempo. Persisted per song. */
+export const setTempo = (id: string, factor: number) =>
+  json<{ tempo_factor: number }>(
+    `/api/track/${id}/tempo?factor=${factor}`, { method: "POST" });

@@ -303,3 +303,31 @@ def test_best_analysis_reports_nothing_when_there_is_nothing(tmp_path):
     conn = db.connect(":memory:")
     db.init_schema(conn)
     assert db.best_analysis(conn, "t1", "btc-5") == (None, False)
+
+
+def test_a_tempo_correction_is_remembered(tmp_path):
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    assert db.get_tempo_factor(conn, "t1") == 1.0
+    db.set_tempo_factor(conn, "t1", 2.0)
+    assert db.get_tempo_factor(conn, "t1") == 2.0
+
+
+def test_setting_it_back_to_one_forgets_it(tmp_path):
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.set_tempo_factor(conn, "t1", 0.5)
+    db.set_tempo_factor(conn, "t1", 1.0)
+    assert db.get_tempo_factor(conn, "t1") == 1.0
+    assert conn.execute("SELECT COUNT(*) c FROM tempo_override").fetchone()["c"] == 0
+
+
+def test_a_correction_outlives_re_analysis(tmp_path):
+    """It is the player's judgement about the song, not the analyser's output,
+    so an engine bump must not throw it away."""
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_analysis(conn, _analysis("t1", "btc-4"))
+    db.set_tempo_factor(conn, "t1", 2.0)
+    db.save_analysis(conn, _analysis("t1", "btc-5"))
+    assert db.get_tempo_factor(conn, "t1") == 2.0

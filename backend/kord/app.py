@@ -13,6 +13,7 @@ from kord.audio.stem_store import StemStore
 from kord.audio.stems import STEM_NAMES
 from kord.audio.store import AudioStore
 from kord.config import Settings
+from kord.analysis.beats import ALLOWED_FACTORS, apply_tempo_factor
 from kord.engine import resolve_engine_version
 from kord.models import Analysis
 from kord.spotify import SCOPES, SpotifyError, authorize_url, build_pkce_pair
@@ -59,7 +60,8 @@ def chord_label(root: int, quality: str, prefer_sharps: bool = False) -> str:
     return f"{note_name(root, prefer_sharps)}{_SUFFIX.get(quality, '')}"
 
 
-def render_analysis(analysis: Analysis, has_audio: bool = False) -> dict:
+def render_analysis(analysis: Analysis, has_audio: bool = False,
+                    tempo_factor: float = 1.0) -> dict:
     """Shape an Analysis for the UI: chart, palette and theory from one record."""
     key = analysis.key
     sharps = uses_sharps(key.root, key.mode)
@@ -77,6 +79,11 @@ def render_analysis(analysis: Analysis, has_audio: bool = False) -> dict:
         for segment in analysis.chord_segments
         if segment.quality != NO_CHORD and segment.root >= 0
     ]
+    # The player's own correction, applied to the number and the grid
+    # together — 136 BPM over a grid still ticking at 68 would be worse
+    # than the wrong tempo alone.
+    tempo, beats = apply_tempo_factor(
+        analysis.tempo, analysis.beat_grid.times_s, tempo_factor)
     scale = scale_for(key.root, key.mode)
     tuning = None
     if analysis.tuning is not None:
@@ -97,7 +104,7 @@ def render_analysis(analysis: Analysis, has_audio: bool = False) -> dict:
         "theory": {
             "key": scale.name,
             "key_uncertain": (not key.agreed) or key.confidence < KEY_CONFIDENCE_FLOOR,
-            "tempo": round(analysis.tempo, 1),
+            "tempo": round(tempo, 1),
             "scale": {"notes": scale.notes, "suggestions": scale.suggestions},
         },
         "heaviness": round(analysis.heaviness, 3),
@@ -109,7 +116,8 @@ def render_analysis(analysis: Analysis, has_audio: bool = False) -> dict:
         ],
         "has_audio": has_audio,
         "tuning": tuning,
-        "beats": analysis.beat_grid.times_s,
+        "beats": beats,
+        "tempo_factor": tempo_factor,
     }
 
 
@@ -357,7 +365,8 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
         if analysis is not None:
             store = AudioStore(settings.audio_dir, settings.audio_cap_bytes)
             has_audio = store.path_for(track_id) is not None
-            body = {"track": track, **render_analysis(analysis, has_audio)}
+            body = {"track": track, **render_analysis(
+                analysis, has_audio, db.get_tempo_factor(conn, track_id))}
             if not is_current:
                 # Show what we have and upgrade behind it. An older analysis is
                 # what the app was showing yesterday; a blank page is not an
@@ -380,6 +389,21 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
     @app.post("/api/track/{track_id}/analyze")
     async def analyze(track_id: str):
         return {"job_id": db.enqueue_job(conn, track_id), "status": "pending"}
+
+    @app.post("/api/track/{track_id}/tempo")
+    async def set_tempo(track_id: str, factor: float = Query(...)):
+        """Halve, restore or double this song's tempo.
+
+        Detecting half-time from audio was measured and abandoned — most rock
+        plays the eighths, so nothing separates a beat the tracker missed from
+        a subdivision that was always there. The player knows the song.
+        """
+        if factor not in ALLOWED_FACTORS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"tempo factor must be one of {ALLOWED_FACTORS}")
+        db.set_tempo_factor(conn, track_id, factor)
+        return {"tempo_factor": factor}
 
     @app.get("/api/track/{track_id}/audio")
     async def audio(track_id: str):

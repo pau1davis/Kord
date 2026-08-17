@@ -70,3 +70,44 @@ class BeatTracker:
 
         times = librosa.frames_to_time(frames, sr=sr)
         return BeatGrid(times_s=[float(t) for t in times], tempo=tempo)
+
+
+# Halve, leave, or double. A free-text multiplier invites 1.03 and a grid that
+# lines up with nothing; tempo errors that a listener can hear and name are
+# octave errors.
+ALLOWED_FACTORS = (0.5, 1.0, 2.0)
+
+
+def apply_tempo_factor(
+    tempo: float, beats: list[float], factor: float
+) -> tuple[float, list[float]]:
+    """The player's own correction to a tempo the tracker got wrong.
+
+    Detecting half-time from audio was measured and abandoned: most rock plays
+    the eighths, so nothing in the signal separates a beat the tracker missed
+    from a subdivision that was always there — acoustically they are the same
+    event. See docs/notes/2026-08-13-tempo-calibration.md. The
+    player knows the song, so the judgement is theirs.
+
+    The grid moves with the number. Showing 136 BPM over a grid still ticking
+    at 68 would be worse than the wrong tempo alone.
+    """
+    if factor not in ALLOWED_FACTORS:
+        raise ValueError(f"tempo factor must be one of {ALLOWED_FACTORS}: {factor}")
+    if factor == 1.0:
+        return tempo, list(beats)
+
+    scaled = tempo * factor
+    if factor == 2.0:
+        doubled: list[float] = []
+        for index, beat in enumerate(beats[:-1]):
+            # Per gap, not one global spacing: live playing drifts, and a
+            # global midpoint would land off the music by the end of the song.
+            doubled.extend([beat, (beat + beats[index + 1]) / 2])
+        if beats:
+            doubled.append(beats[-1])
+        return scaled, doubled
+
+    # Halving keeps the first beat: dropping it would shift the whole grid onto
+    # the offbeat, which sounds worse than the tempo being wrong.
+    return scaled, list(beats[::2])

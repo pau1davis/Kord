@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getTrack, type TrackResponse, type TrackSummary } from "./api";
+import { getTrack, setTempo, type TrackResponse, type TrackSummary } from "./api";
 import { chartTime, loopTarget, type LoopRange } from "./chart";
 import { usePlayhead } from "./hooks/usePlayhead";
 import { songInView } from "./navigation";
@@ -100,6 +100,15 @@ export default function App() {
     if (stemsActive) player?.pause();
   }, [stemsActive, player]);
 
+  // The player's tempo correction. Re-fetching rather than patching state
+  // locally, because the beat grid moves with the number and the server is
+  // what recomputes it.
+  const setTempoFactor = useCallback(async (factor: number) => {
+    if (!picked) return;
+    await setTempo(picked.id, factor);
+    setData(await getTrack(picked.id));
+  }, [picked]);
+
   const seekToChart = (t: number) =>
     player?.seek(t + (data?.sync_offset_ms ?? 0) / 1000);
 
@@ -130,6 +139,8 @@ export default function App() {
               player={player}
               playing={playing}
               currentTime={currentTime}
+              tempoFactor={data?.tempo_factor ?? 1}
+              onTempoFactor={setTempoFactor}
             />
           </MoodRing>
 

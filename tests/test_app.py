@@ -791,3 +791,48 @@ def test_a_current_analysis_is_not_flagged_as_stale(client):
     body = c.get("/api/track/t1").json()
     assert "stale_engine" not in body
     assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 0
+
+
+def test_doubling_a_tempo_doubles_the_beat_grid_with_it(client):
+    """Showing 136 BPM over a grid still ticking at 68 would be worse than the
+    wrong tempo alone."""
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+
+    before = c.get("/api/track/t1").json()
+    assert before["theory"]["tempo"] == 92.0
+    assert before["beats"] == [0.0, 0.65]
+
+    assert c.post("/api/track/t1/tempo?factor=2").status_code == 200
+    after = c.get("/api/track/t1").json()
+    assert after["theory"]["tempo"] == 184.0
+    assert after["beats"] == [0.0, 0.325, 0.65]
+    assert after["tempo_factor"] == 2.0
+
+
+def test_a_tempo_correction_survives_re_analysis(client):
+    """It is the player's judgement about the song, not the analyser's output.
+    An engine bump must not silently undo it."""
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+    c.post("/api/track/t1/tempo?factor=0.5")
+
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)],
+                          engine_version="chroma-1")
+    assert c.get("/api/track/t1").json()["theory"]["tempo"] == 46.0
+
+
+def test_setting_the_factor_back_to_one_restores_the_measured_tempo(client):
+    c, conn = client
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+    c.post("/api/track/t1/tempo?factor=2")
+    c.post("/api/track/t1/tempo?factor=1")
+    assert c.get("/api/track/t1").json()["theory"]["tempo"] == 92.0
+
+
+def test_an_absurd_tempo_factor_is_refused(client):
+    """A free-text multiplier invites 1.03 and a grid that lines up with
+    nothing. Tempo errors a listener can name are octave errors."""
+    c, _ = client
+    assert c.post("/api/track/t1/tempo?factor=1.03").status_code == 400
+    assert c.post("/api/track/t1/tempo?factor=3").status_code == 400

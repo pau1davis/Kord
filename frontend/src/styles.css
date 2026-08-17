@@ -943,3 +943,22 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .tabscroll { scroll-behavior: auto; }
 }
+
+/* The player's tempo correction. Detecting half-time from audio was measured
+   and does not work, so the judgement is theirs — see the tempo calibration
+   note. Kept quiet until hovered: most tempos are right. */
+.facts .tempo { display: inline-flex; align-items: center; gap: 0.4rem; }
+.tempofix { display: inline-flex; gap: 0.2rem; opacity: 0.45; transition: opacity 0.15s; }
+.facts .tempo:hover .tempofix, .tempofix:focus-within { opacity: 1; }
+.tempofix button {
+  background: none; border: 1px solid var(--line); border-radius: 4px;
+  color: var(--text-dim); font: 500 0.65rem var(--mono);
+  padding: 0.05rem 0.3rem; cursor: pointer; line-height: 1.4;
+}
+.tempofix button:hover:not(:disabled) { color: var(--brass); border-color: var(--brass); }
+.tempofix button:disabled { opacity: 0.3; cursor: default; }
+.temporeset {
+  background: none; border: 0; color: var(--brass); cursor: pointer;
+  font: 500 0.65rem var(--mono); text-decoration: underline dotted;
+  padding: 0;
+}

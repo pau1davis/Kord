@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS tab_job (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS tab_job_state_idx ON tab_job(state);
+CREATE TABLE IF NOT EXISTS tempo_override (
+    spotify_id TEXT PRIMARY KEY,
+    factor     REAL NOT NULL,
+    set_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 # Columns added after the first release; ALTER is idempotent-checked below.
@@ -432,3 +437,29 @@ def tab_job_for(conn, spotify_id: str):
         "SELECT * FROM tab_job WHERE spotify_id=? ORDER BY id DESC LIMIT 1",
         (spotify_id,),
     ).fetchone()
+
+
+def set_tempo_factor(conn, spotify_id: str, factor: float) -> None:
+    """Remember that the player halved or doubled this song's tempo.
+
+    Kept out of the analysis row on purpose: it is the player's judgement about
+    the song, not the analyser's output, and it must survive every re-analysis
+    and engine bump. Storing it in the payload would throw it away on the next
+    one.
+    """
+    if factor == 1.0:
+        conn.execute("DELETE FROM tempo_override WHERE spotify_id=?", (spotify_id,))
+    else:
+        conn.execute(
+            "INSERT INTO tempo_override (spotify_id, factor) VALUES (?, ?) "
+            "ON CONFLICT(spotify_id) DO UPDATE SET "
+            "factor=excluded.factor, set_at=datetime('now')",
+            (spotify_id, factor))
+    conn.commit()
+
+
+def get_tempo_factor(conn, spotify_id: str) -> float:
+    row = conn.execute(
+        "SELECT factor FROM tempo_override WHERE spotify_id=?", (spotify_id,)
+    ).fetchone()
+    return float(row["factor"]) if row else 1.0
