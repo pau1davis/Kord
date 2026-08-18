@@ -120,3 +120,17 @@ def test_a_missing_video_does_not_trigger_a_backoff():
         source._guarded(lambda: (_ for _ in ()).throw(
             RuntimeError("ERROR: [youtube] abc: This video is not available")))
     assert throttle.penalty_s == 0.0
+
+
+def test_downloads_ask_for_a_player_client_that_actually_works():
+    """The default client answers 403 for the audio stream on every video, and
+    `android` downloads the same video fine — measured 2026-08-18. Pinned by a
+    test because the symptom is indistinguishable from rate limiting, and the
+    next person to see it will waste the same afternoon."""
+    import inspect
+
+    from kord.audio import youtube
+
+    assert youtube.PLAYER_CLIENTS[0] == "android"
+    source = inspect.getsource(youtube.YouTubeAudioSource.download)
+    assert "player_client" in source, "download must set the client explicitly"

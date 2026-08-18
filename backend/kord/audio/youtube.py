@@ -19,6 +19,18 @@ from kord.models import AudioCandidate
 # stem separation. The fallback keeps songs offering no m4a working.
 DOWNLOAD_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
 
+# Which of YouTube's own players to impersonate when fetching stream URLs.
+#
+# As of 2026-08-18 the default client answers HTTP 403 for the audio stream on
+# every video tried, while `android` downloads the same video without
+# complaint. This looked exactly like rate limiting — every candidate for every
+# song refused — and was not: it survived eighteen hours of not asking, and one
+# client switch fixed it immediately.
+#
+# A list rather than a pin, because YouTube breaks these in rotation and
+# yt-dlp falls through to the next. Ordered by what currently works.
+PLAYER_CLIENTS = ("android", "web_safari", "web")
+
 log = logging.getLogger("kord.youtube")
 
 
@@ -77,6 +89,7 @@ class YouTubeAudioSource:
         options = {
             "quiet": True, "no_warnings": True, "format": DOWNLOAD_FORMAT,
             "outtmpl": template, "noplaylist": True,
+            "extractor_args": {"youtube": {"player_client": list(PLAYER_CLIENTS)}},
         }
         def run():
             with yt_dlp.YoutubeDL(options) as ydl:
