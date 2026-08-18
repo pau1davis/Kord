@@ -34,3 +34,33 @@ class StemStore:
 
     def remove(self, spotify_id: str) -> None:
         shutil.rmtree(self.dir_for(spotify_id), ignore_errors=True)
+
+    def present(self, spotify_id: str, names) -> list[str]:
+        """The parts actually in this song, cached beside the stems.
+
+        Measuring six whole songs' worth of audio costs seconds, and the answer
+        never changes once the stems are written — so it is computed on first
+        ask and kept in a file next to them. No schema change, and it works for
+        songs separated before this existed.
+        """
+        import json
+
+        from kord.audio.presence import measure, present_parts
+
+        paths = {n: self.path_for(spotify_id, n) for n in names}
+        paths = {n: p for n, p in paths.items() if p is not None}
+        if not paths:
+            return []
+
+        cache = self.dir_for(spotify_id) / "levels.json"
+        levels = {}
+        if cache.exists():
+            try:
+                levels = json.loads(cache.read_text())
+            except ValueError:
+                levels = {}
+        # Recompute if a stem appeared or vanished since the cache was written.
+        if set(levels) != set(paths):
+            levels = measure(paths)
+            cache.write_text(json.dumps(levels))
+        return present_parts(levels)

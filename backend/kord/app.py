@@ -428,10 +428,10 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
     async def stem_status(track_id: str):
         store = StemStore(settings.stems_dir)
         job = db.stem_job_for(conn, track_id)
-        available = [
-            name for name in STEM_NAMES
-            if store.path_for(track_id, name) is not None
-        ]
+        # Only the parts actually in the song. htdemucs_6s emits all six
+        # whether or not one played, and six of nine songs in the library have
+        # a piano stem that is pure separation bleed.
+        available = store.present(track_id, STEM_NAMES)
         return {
             "status": job["state"] if job else "none",
             "error": job["error"] if job else None,
