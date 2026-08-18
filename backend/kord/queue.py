@@ -210,6 +210,11 @@ def main() -> None:
     settings = Settings.from_env()
     conn = db.connect(settings.db_path)
     db.init_schema(conn)
+    # Anything left 'running' belongs to a worker that is no longer alive:
+    # this is the only moment Kord's single worker can be sure of that.
+    reclaimed = db.reclaim_running_jobs(conn)
+    if reclaimed:
+        log.info("returned %d wedged job(s) to the queue", reclaimed)
     recognizer, engine_version = build_recognizer(settings)
     pipeline = AnalysisPipeline(
         source=YouTubeAudioSource(),

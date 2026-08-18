@@ -331,3 +331,38 @@ def test_a_correction_outlives_re_analysis(tmp_path):
     db.set_tempo_factor(conn, "t1", 2.0)
     db.save_analysis(conn, _analysis("t1", "btc-5"))
     assert db.get_tempo_factor(conn, "t1") == 2.0
+
+
+def test_reclaiming_returns_wedged_jobs_to_the_queue(tmp_path):
+    """A worker killed mid-job leaves it 'running' forever, and nothing else
+    ever picks it up — the song shows "pending" for good. This has stranded a
+    job twice: once on an Aug 12 crash, once on the shutdown of Aug 17.
+    """
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    for table, enqueue in (("job", db.enqueue_job),
+                           ("stem_job", db.enqueue_stem_job),
+                           ("tab_job", db.enqueue_tab_job)):
+        enqueue(conn, "t1")
+        conn.execute(f"UPDATE {table} SET state='running'")
+    conn.commit()
+
+    assert db.reclaim_running_jobs(conn) == 3
+    for table in ("job", "stem_job", "tab_job"):
+        states = [r[0] for r in conn.execute(f"SELECT state FROM {table}")]
+        assert states == ["pending"], table
+
+
+def test_reclaiming_leaves_finished_work_alone(tmp_path):
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    job_id = db.enqueue_job(conn, "t1")
+    db.finish_job(conn, job_id, "done")
+    assert db.reclaim_running_jobs(conn) == 0
+    assert conn.execute("SELECT state FROM job").fetchone()[0] == "done"
+
+
+def test_reclaiming_an_empty_queue_is_not_a_crash(tmp_path):
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    assert db.reclaim_running_jobs(conn) == 0

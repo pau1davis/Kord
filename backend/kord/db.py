@@ -463,3 +463,25 @@ def get_tempo_factor(conn, spotify_id: str) -> float:
         "SELECT factor FROM tempo_override WHERE spotify_id=?", (spotify_id,)
     ).fetchone()
     return float(row["factor"]) if row else 1.0
+
+
+def reclaim_running_jobs(conn) -> int:
+    """Return jobs left 'running' by a dead worker to the queue.
+
+    Nothing else ever picks them up: `claim_*_job` only looks at 'pending', so
+    a worker killed mid-job strands that song as "pending" in the UI forever.
+    This has happened twice — a crash on Aug 12 left Enter Sandman wedged, and
+    the shutdown on Aug 17 did it again.
+
+    Safe because Kord runs exactly one worker: there is no other process whose
+    in-flight job this could steal. Called at worker start, which is the only
+    moment that is guaranteed to be true.
+    """
+    total = 0
+    for table in ("job", "stem_job", "tab_job"):
+        cursor = conn.execute(
+            f"UPDATE {table} SET state='pending', updated_at=datetime('now') "
+            f"WHERE state='running'")
+        total += cursor.rowcount
+    conn.commit()
+    return total
