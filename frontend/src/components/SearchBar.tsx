@@ -6,6 +6,7 @@ export function SearchBar({ onPick }: { onPick: (track: TrackSummary) => void })
   const [results, setResults] = useState<TrackSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsAuth, setNeedsAuth] = useState(false);
   const container = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,10 +22,14 @@ export function SearchBar({ onPick }: { onPick: (track: TrackSummary) => void })
     if (!query.trim()) return;
     setBusy(true);
     setError(null);
+    setNeedsAuth(false);
     try {
       setResults(await searchTracks(query));
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
+        // Telling someone to connect without giving them the way to do it
+        // leaves them to find /api/auth/login on their own.
+        setNeedsAuth(true);
         setError("Connect your Spotify account, then search again.");
       } else if (e instanceof ApiError) {
         setError(e.message);
@@ -57,7 +62,10 @@ export function SearchBar({ onPick }: { onPick: (track: TrackSummary) => void })
 
       {error && (
         <ul className="results">
-          <li className="detail" style={{ padding: "0.5rem" }}>{error}</li>
+          <li className="detail" style={{ padding: "0.5rem" }}>
+            {error}
+            {needsAuth && <> <a href="/api/auth/login">Connect Spotify</a></>}
+          </li>
         </ul>
       )}
 

@@ -962,3 +962,10 @@ body {
   font: 500 0.65rem var(--mono); text-decoration: underline dotted;
   padding: 0;
 }
+
+/* The search error offers the fix rather than naming it. */
+.results .detail a {
+  color: var(--brass); text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--brass) 45%, transparent);
+}
+.results .detail a:hover { border-bottom-color: var(--brass); }
