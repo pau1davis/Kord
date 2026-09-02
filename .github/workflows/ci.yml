@@ -14,6 +14,13 @@ jobs:
           python-version: '3.11'
           cache: pip
 
+      # yt-dlp and the stem encoder shell out to ffmpeg, which the runner
+      # image does not carry. Without it 17 tests fail on a missing binary.
+      - name: System dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
       # Base dependencies only. The btc and tab extras pull in torch and
       # basic-pitch, which take minutes to install; the tests covering them
       # use pytest.importorskip and skip when they are absent.
