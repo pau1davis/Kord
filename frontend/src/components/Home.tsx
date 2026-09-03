@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import {
-  analyzeTop, ApiError, getLibrary, getRecent, getTaste, getTopTracks,
-  type Library, type Taste, type TrackSummary,
+  analyzeTop, ApiError, getLibrary, getRecent, getRecentlyOpened, getTaste,
+  getTopTracks, type Library, type Taste, type TrackSummary,
 } from "../api";
+import { homeMode } from "../home";
 import { MoodRing } from "./MoodRing";
 import { Workbench } from "./Workbench";
 
@@ -36,6 +37,7 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
   const [taste, setTaste] = useState<Taste | null>(null);
   const [library, setLibrary] = useState<Library | null>(null);
   const [recent, setRecent] = useState<TrackSummary[]>([]);
+  const [recentlyOpened, setRecentlyOpened] = useState<TrackSummary[]>([]);
   // Not a boolean: "your account isn't connected" and "the server didn't
   // answer" ask for different things from the reader, and telling someone to
   // reconnect Spotify when the backend is down sends them off to fix the one
@@ -56,6 +58,9 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
     // Local state, so it renders even if Spotify is unreachable.
     getLibrary().then((l) => { if (live) setLibrary(l); }).catch(() => {});
     getRecent().then((r) => { if (live) setRecent(r); }).catch(() => {});
+    getRecentlyOpened()
+      .then((r) => { if (live) setRecentlyOpened(r); })
+      .catch(() => {});
     return () => { live = false; };
   }, []);
 
@@ -77,22 +82,44 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
     return () => { live = false; window.clearTimeout(timer); };
   }, []);
 
-  if (problem) {
-    return problem.status === 401 ? (
-      <div className="empty">
-        <h2>Connect your Spotify account.</h2>
-        <p>Kord builds this page from the music you actually listen to.</p>
-        <p className="hint">
-          <a href="/api/auth/login">Connect Spotify</a>
-        </p>
-      </div>
-    ) : (
+  const mode = homeMode(tracks.length > 0, problem);
+
+  if (mode === "error") {
+    return (
       <div className="empty">
         <h2>Kord couldn't load your music.</h2>
-        <p>{problem.message}</p>
+        <p>{problem?.message}</p>
+      </div>
+    );
+  }
+
+  if (mode === "local") {
+    return (
+      <div className="empty">
+        <h2>Search for a song.</h2>
+        <p>
+          Type a song into the box above and Kord will find it, work out the
+          chords, and split it into parts you can solo.
+        </p>
+        {library && library.analyzed > 0 && (
+          <p className="hint">
+            {library.analyzed} songs analysed so far.
+          </p>
+        )}
+        {recentlyOpened.length > 0 && (
+          <ul className="shelf-list">
+            {recentlyOpened.map((track) => (
+              <li key={track.id}>
+                <button onClick={() => onPick(track)}>
+                  {track.title} — {track.artist}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <p className="hint">
-          Your account is fine — this is the app, not Spotify. Start it with
-          <code> ./run.sh</code> and reload.
+          <a href="/api/auth/login">Connect Spotify</a> to see a home screen
+          built from what you listen to. Everything else works without it.
         </p>
       </div>
     );

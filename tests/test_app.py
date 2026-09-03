@@ -757,6 +757,16 @@ def test_library_without_history_has_nothing_to_resume(client):
     assert body["analyzed"] == 0
 
 
+def test_recently_opened_needs_no_account(tmp_path, monkeypatch):
+    """It is local data. Requiring a token for it would be the exact mistake
+    this whole change exists to undo."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # no session
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    assert c.get("/api/library/recent").status_code == 200
+
+
 def _analysis_with_tuning(cents, agreement, flags=()):
     from kord.models import Tuning
     return Analysis(

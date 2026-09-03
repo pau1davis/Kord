@@ -308,6 +308,15 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
         """What you were just listening to on Spotify, ready to learn."""
         return await spotify.recently_played(await require_token())
 
+    @app.get("/api/library/recent")
+    async def library_recent(limit: int = 8):
+        """Songs opened in Kord, most recent first.
+
+        Local data, so no token: under /api/library rather than /api/me, which
+        is the prefix that means "needs Spotify".
+        """
+        return [dict(row) for row in db.recently_opened(conn, limit=limit)]
+
     @app.get("/api/me/library")
     async def me_library():
         """Kord's own state: what you have analysed and what you were last on.

@@ -147,6 +147,8 @@ export type Library = {
 
 export const getLibrary = () => json<Library>("/api/me/library");
 export const getRecent = () => json<TrackSummary[]>("/api/me/recent");
+export const getRecentlyOpened = () =>
+  json<TrackSummary[]>("/api/library/recent");
 
 export type TabState = "none" | "pending" | "running" | "done" | "failed" | "unavailable";
 
