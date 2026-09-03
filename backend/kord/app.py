@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import (
     FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse,
 )
@@ -298,6 +299,41 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
     async def search(q: str = Query(min_length=1)):
         source = await metadata_for()
         return [facts.to_dict() for facts in await source.search(q)]
+
+    @app.post("/api/import")
+    async def import_file(file: UploadFile = File(...)):
+        """Analyse an audio file the player already has.
+
+        For music the catalogues do not have — unreleased songs, your own
+        band's recordings, a rehearsal tape. Needs no account, because nothing
+        about it involves a catalogue.
+        """
+        import hashlib
+
+        from kord.metadata.ids import FILE, namespaced
+
+        payload = await file.read()
+        if not payload:
+            raise HTTPException(status_code=400, detail="that file is empty")
+
+        # Content hash, not filename: importing the same song twice should find
+        # the existing analysis rather than redo three minutes of work.
+        track_id = namespaced(FILE, hashlib.sha256(payload).hexdigest()[:24])
+        suffix = Path(file.filename or "").suffix.lower() or ".wav"
+
+        store = AudioStore(settings.audio_dir, settings.audio_cap_bytes)
+        if store.path_for(track_id) is None:
+            scratch = settings.scratch_dir / "import"
+            scratch.mkdir(parents=True, exist_ok=True)
+            staged = scratch / f"{track_id.replace(':', '_')}{suffix}"
+            staged.write_bytes(payload)
+            store.retain(track_id, staged)
+            staged.unlink(missing_ok=True)
+
+        title = Path(file.filename or "Imported song").stem
+        db.upsert_track(conn, track_id, "Imported", title, None, 0)
+        db.enqueue_job(conn, track_id)
+        return {"id": track_id, "title": title}
 
     @app.get("/api/me/top")
     async def me_top():

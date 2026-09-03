@@ -15,7 +15,7 @@ def conn():
 
 
 class OkPipeline:
-    def run(self, spotify_id, artist, title, duration_ms):
+    def run(self, spotify_id, artist, title, duration_ms, audio_path=None):
         return Analysis(
             spotify_id=spotify_id, engine_version="chroma-1",
             key=KeyEstimate(0, "major", 0.8, True), tempo=120.0,
@@ -26,7 +26,7 @@ class OkPipeline:
 
 
 class FailPipeline:
-    def run(self, *args):
+    def run(self, *args, **kwargs):
         raise NoAudioFound("nothing matched")
 
 
@@ -47,7 +47,7 @@ def test_no_audio_marks_unavailable_with_reason(conn):
 
 def test_unexpected_error_marks_failed_not_unavailable(conn):
     class Boom:
-        def run(self, *args):
+        def run(self, *args, **kwargs):
             raise RuntimeError("out of memory")
 
     db.enqueue_job(conn, "t1")
@@ -65,7 +65,7 @@ def test_unavailable_and_failed_are_distinguished(conn):
     db.enqueue_job(conn, "t2")
 
     class Boom:
-        def run(self, *args):
+        def run(self, *args, **kwargs):
             raise ValueError("bad")
 
     assert run_one_job(conn, Boom()) == "failed"
@@ -86,7 +86,7 @@ def test_empty_queue_returns_none(conn):
 def test_worker_never_propagates_pipeline_exceptions(conn):
     """The API process must survive anything the analyzer does."""
     class Nuclear:
-        def run(self, *args):
+        def run(self, *args, **kwargs):
             raise MemoryError("8GB exhausted")
 
     db.enqueue_job(conn, "t1")
@@ -121,7 +121,7 @@ def test_completed_job_records_audio_ext_and_trims_to_cap(tmp_path, conn):
     class RetainingPipeline:
         audio_store = store
 
-        def run(self, spotify_id, artist, title, duration_ms):
+        def run(self, spotify_id, artist, title, duration_ms, audio_path=None):
             store.retain(spotify_id, write(tmp_path / "new.webm", 100))
             return Analysis(
                 spotify_id=spotify_id, engine_version="chroma-1",
@@ -169,7 +169,7 @@ def test_completed_job_never_evicts_the_track_it_just_retained(tmp_path, conn):
     class RetainingPipeline:
         audio_store = store
 
-        def run(self, spotify_id, artist, title, duration_ms):
+        def run(self, spotify_id, artist, title, duration_ms, audio_path=None):
             store.retain(spotify_id, write(tmp_path / "new.webm", 100))
             return Analysis(
                 spotify_id=spotify_id, engine_version="chroma-1",

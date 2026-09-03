@@ -78,23 +78,34 @@ class AnalysisPipeline:
             f"every candidate for {artist} - {title} could not be downloaded")
 
     def run(
-        self, spotify_id: str, artist: str, title: str, spotify_duration_ms: int
+        self, spotify_id: str, artist: str, title: str, spotify_duration_ms: int,
+        audio_path: Path | None = None,
     ) -> Analysis:
-        candidates = self.source.search(artist, title)
-        ranked = rank_candidates(spotify_duration_ms, candidates, artist, title)
-        if not ranked:
-            raise NoAudioFound(
-                f"no studio recording of {artist} - {title} was found: every "
-                f"result was the wrong length, or a live take, cover or remix")
-
-        work_dir = self.scratch_dir / spotify_id
-        try:
+        # A colon is legal in a macOS path but is displayed as `/` by Finder
+        # and is not portable, so it is stripped from the directory name.
+        work_dir = self.scratch_dir / spotify_id.replace(":", "_")
+        if audio_path is not None:
+            # An imported file was never found, so there is nothing to search
+            # for, no candidate to validate and no upload to be mismatched
+            # against — time_scale stays 1.0 and no flag applies.
+            chosen, tier, ratio = None, "clean", 1.0
+            downloaded = Path(audio_path)
+            work_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            candidates = self.source.search(artist, title)
+            ranked = rank_candidates(spotify_duration_ms, candidates, artist, title)
+            if not ranked:
+                raise NoAudioFound(
+                    f"no studio recording of {artist} - {title} was found: every "
+                    f"result was the wrong length, or a live take, cover or remix")
             # The pipeline owns this directory, so it creates it. Sources that
             # return an existing path (local files) never make one, and relying
             # on the source to do it would be a contract waiting to break.
             work_dir.mkdir(parents=True, exist_ok=True)
             chosen, tier, ratio, downloaded = self._download_best(
                 ranked, work_dir, artist, title)
+
+        try:
             wav_path = decode_to_wav(downloaded, work_dir / "decoded.wav")
             y, sr = librosa.load(wav_path, sr=SAMPLE_RATE, mono=True)
             y, offset_ms = trim_leading_silence(y, sr)
@@ -129,8 +140,8 @@ class AnalysisPipeline:
                 tempo=grid.tempo,
                 beat_grid=grid,
                 chord_segments=segments,
-                source_url=chosen.url,
-                source_duration_ms=chosen.duration_ms,
+                source_url=chosen.url if chosen else str(audio_path),
+                source_duration_ms=chosen.duration_ms if chosen else spotify_duration_ms,
                 time_scale=time_scale,
                 sync_offset_ms=offset_ms,
                 flags=["speed_adjusted"] if tier == "speed_adjusted" else [],

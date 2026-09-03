@@ -4,6 +4,7 @@ import {
   getTopTracks, type Library, type Taste, type TrackSummary,
 } from "../api";
 import { homeMode } from "../home";
+import { ImportButton } from "./ImportButton";
 import { MoodRing } from "./MoodRing";
 import { Workbench } from "./Workbench";
 
@@ -101,6 +102,11 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
           Type a song into the box above and Kord will find it, work out the
           chords, and split it into parts you can solo.
         </p>
+        <p className="hint">
+          Have the file already — a rehearsal tape, an unreleased song, your
+          own band?
+        </p>
+        <ImportButton onPick={onPick} />
         {library && library.analyzed > 0 && (
           <p className="hint">
             {library.analyzed} songs analysed so far.

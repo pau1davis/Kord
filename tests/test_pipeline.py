@@ -268,6 +268,35 @@ def test_every_candidate_refused_is_reported_as_worth_retrying():
     assert attempts == ["u0", "u1", "u2"]
 
 
+def test_an_imported_file_is_analysed_without_searching_anywhere():
+    """An imported file was never found, so the pipeline must not go looking."""
+    from kord.analysis.pipeline import AnalysisPipeline
+
+    class ForbiddenSource:
+        def search(self, artist, title):
+            raise AssertionError("must not search for an imported file")
+
+        def download(self, candidate, dest_dir):
+            raise AssertionError("must not download an imported file")
+
+    sr = 22050
+    tone = np.sin(2 * np.pi * 220.0 * np.arange(sr * 3) / sr).astype(np.float32)
+    work = Path(tempfile.mkdtemp())
+    source_file = work / "song.wav"
+    sf.write(source_file, tone, sr)
+
+    pipeline = AnalysisPipeline(
+        source=ForbiddenSource(),
+        recognizer=ChromaTemplateRecognizer(),
+        scratch_dir=work / "scratch", engine_version="chroma-1")
+
+    analysis = pipeline.run("file:abc", "Unknown", "song", 3000,
+                            audio_path=source_file)
+    assert analysis.spotify_id == "file:abc"
+    assert analysis.time_scale == 1.0
+    assert analysis.flags == []
+
+
 def test_an_ordinary_download_failure_still_tries_the_next_candidate():
     """A deleted or private video says nothing about the others."""
     from kord.analysis.pipeline import AnalysisPipeline, NoAudioFound

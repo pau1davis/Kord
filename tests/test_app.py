@@ -1002,3 +1002,36 @@ def test_an_absurd_tempo_factor_is_refused(client):
     c, _ = client
     assert c.post("/api/track/t1/tempo?factor=1.03").status_code == 400
     assert c.post("/api/track/t1/tempo?factor=3").status_code == 400
+
+
+def test_importing_the_same_file_twice_analyses_it_once(client, tmp_path):
+    """The ID is a content hash, so a re-import finds the existing work rather
+    than spending three minutes redoing it."""
+    import numpy as np, soundfile as sf
+
+    c, conn = client
+    sr = 22050
+    path = tmp_path / "riff.wav"
+    sf.write(path, np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype("float32"), sr)
+    data = path.read_bytes()
+
+    first = c.post("/api/import", files={"file": ("riff.wav", data, "audio/wav")}).json()
+    second = c.post("/api/import", files={"file": ("riff.wav", data, "audio/wav")}).json()
+
+    assert first["id"] == second["id"]
+    assert first["id"].startswith("file:")
+    assert conn.execute("SELECT COUNT(*) c FROM track").fetchone()["c"] == 1
+    assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 1
+
+
+def test_importing_needs_no_account(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # no session
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    import numpy as np, soundfile as sf
+    p = tmp_path / "x.wav"
+    sf.write(p, np.zeros(2205, dtype="float32"), 22050)
+    assert c.post("/api/import",
+                  files={"file": ("x.wav", p.read_bytes(), "audio/wav")}
+                  ).status_code == 200

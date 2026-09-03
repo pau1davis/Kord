@@ -427,6 +427,10 @@ body {
 
 .empty p { color: var(--text-dim); margin: 0; }
 .empty p + p { margin-top: 0.75rem; }
+/* Import sits outside the grid contexts .sep is usually placed in (the
+   mixer, the tab sheet), so it needs its own top margin to match the
+   spacing every paragraph above it already has. */
+.empty .sep { margin-top: 0.75rem; }
 .empty code {
   font-family: ui-monospace, monospace; font-size: 0.9em; color: var(--brass);
 }

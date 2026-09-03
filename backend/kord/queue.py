@@ -8,6 +8,7 @@ from pathlib import Path
 
 from kord import db
 from kord.analysis.pipeline import NoAudioFound
+from kord.metadata.ids import FILE, provider_of
 from kord.tab.bass import transcribe_bass
 from kord.tab.channels import split_channels
 from kord.tab.guitar import transcribe_guitar
@@ -66,9 +67,16 @@ def run_one_job(conn, pipeline) -> str | None:
         db.finish_job(conn, job["id"], "failed", "track metadata missing")
         return "failed"
 
+    # An imported file is already in the audio store, so the pipeline is handed
+    # it rather than sent looking for something it would never find.
+    audio_path = None
+    if provider_of(track["spotify_id"]) == FILE and pipeline.audio_store:
+        audio_path = pipeline.audio_store.path_for(track["spotify_id"])
+
     try:
         analysis = pipeline.run(
-            track["spotify_id"], track["artist"], track["title"], track["duration_ms"])
+            track["spotify_id"], track["artist"], track["title"],
+            track["duration_ms"], audio_path=audio_path)
     except NoAudioFound as exc:
         # Distinct from a failure: nothing is broken, the audio just isn't findable.
         db.finish_job(conn, job["id"], "unavailable", str(exc))

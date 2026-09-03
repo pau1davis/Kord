@@ -5,6 +5,10 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110", "uvicorn[standard]>=0.27", "httpx>=0.27",
   "librosa>=0.10", "numpy>=1.26", "soundfile>=0.12", "yt-dlp>=2024.1",
+  # FastAPI's own required parser for File/UploadFile (multipart/form-data).
+  # Not an added capability — /api/import cannot decode a file upload
+  # without it, since this is what Starlette itself calls to do so.
+  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
