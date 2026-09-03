@@ -313,9 +313,20 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
         """Songs opened in Kord, most recent first.
 
         Local data, so no token: under /api/library rather than /api/me, which
-        is the prefix that means "needs Spotify".
+        is the prefix that means "needs Spotify". Shaped like the frontend's
+        TrackSummary (id/title/artist/album/duration_ms/image) rather than a
+        raw `dict(row)` of the track table, whose primary key is spotify_id
+        and which has no image column — the same mapping db.get_track already
+        does, so a picked row can be opened the same way any other track is.
         """
-        return [dict(row) for row in db.recently_opened(conn, limit=limit)]
+        return [
+            {
+                "id": row["spotify_id"], "title": row["title"],
+                "artist": row["artist"], "album": row["album"],
+                "duration_ms": row["duration_ms"], "image": None,
+            }
+            for row in db.recently_opened(conn, limit=limit)
+        ]
 
     @app.get("/api/me/library")
     async def me_library():

@@ -767,6 +767,26 @@ def test_recently_opened_needs_no_account(tmp_path, monkeypatch):
     assert c.get("/api/library/recent").status_code == 200
 
 
+def test_recently_opened_is_shaped_like_a_track_the_frontend_can_open(
+    tmp_path, monkeypatch,
+):
+    """The row's primary key is spotify_id and it has no image column. Serve
+    it as `dict(row)` and the id the frontend needs to reopen the track is
+    just missing, so picking one from the list silently does nothing."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "Radiohead", "Creep", "Pablo Honey", 238640)
+    conn.execute("UPDATE track SET last_played_at='2026-08-14' WHERE spotify_id='t1'")
+    conn.commit()
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    body = c.get("/api/library/recent").json()
+    assert body == [{
+        "id": "t1", "title": "Creep", "artist": "Radiohead",
+        "album": "Pablo Honey", "duration_ms": 238640, "image": None,
+    }]
+
+
 def _analysis_with_tuning(cents, agreement, flags=()):
     from kord.models import Tuning
     return Analysis(

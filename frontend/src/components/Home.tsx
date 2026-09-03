@@ -107,15 +107,19 @@ export function Home({ onPick }: { onPick: (track: TrackSummary) => void }) {
           </p>
         )}
         {recentlyOpened.length > 0 && (
-          <ul className="shelf-list">
-            {recentlyOpened.map((track) => (
-              <li key={track.id}>
-                <button onClick={() => onPick(track)}>
-                  {track.title} — {track.artist}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <>
+            <p className="shelf-label">Recently opened</p>
+            <ul className="shelf-list">
+              {recentlyOpened.map((track) => (
+                <li key={track.id}>
+                  <button onClick={() => onPick(track)}>
+                    <span className="title">{track.title}</span>
+                    <span className="artist">{track.artist}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
         <p className="hint">
           <a href="/api/auth/login">Connect Spotify</a> to see a home screen
