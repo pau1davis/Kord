@@ -144,7 +144,8 @@ frontend stops treating 401 as fatal:
 - **Search** never 401s. Signed out, it queries iTunes.
 - **The home screen** currently *is* the Spotify taste ring. Signed out it
   shows what the app knows locally: recently opened songs (`db.recently_opened`
-  already exists and is unused by this screen), the library summary that
+  exists and is currently used only to pick a single track elsewhere, so the
+  screen is new but the query is not), the library summary that
   `/api/me/library` already returns, and a prompt to search. Signing in adds the
   orbiting art and the taste colours on top.
 - **A "Connect Spotify" affordance** stays available but is never a wall.
@@ -163,9 +164,18 @@ This is the path that makes Kord work for unreleased material, live recordings
 of your own band, and anything the catalogues do not have. It is secondary to
 search by design: most people have a song title in mind, not a file.
 
-`AudioSource` needs no new implementation — the pipeline is told the file is
-already present, the same way `LocalFileAudioSource` already behaves. That class
-exists, is exercised only by tests, and this is what it was for.
+`AnalysisPipeline.run` gains an optional `audio_path`. When given, it skips the
+search and download entirely and analyses that file:
+
+```python
+def run(self, track_id, artist, title, duration_ms,
+        audio_path: Path | None = None) -> Analysis: ...
+```
+
+That is a smaller change than a new `AudioSource`, and more honest: an imported
+file was never *found*, so making a fake source that "searches" for a file we
+already hold would be ceremony. `speed_adjusted` cannot apply and `time_scale`
+stays 1.0, because there is no upload to be mismatched against.
 
 ## 7. Endpoints
 
