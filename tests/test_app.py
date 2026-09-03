@@ -1005,8 +1005,14 @@ def test_an_absurd_tempo_factor_is_refused(client):
 
 
 def test_importing_the_same_file_twice_analyses_it_once(client, tmp_path):
-    """The ID is a content hash, so a re-import finds the existing work rather
-    than spending three minutes redoing it."""
+    """The ID is a content hash, so a re-import finds the existing analysis
+    rather than spending three minutes redoing it.
+
+    Deliberately simulates the first job having already finished before the
+    second POST arrives — a re-import while the first job is still pending
+    would pass this assertion for the wrong reason, via enqueue_job's
+    pending/running dedup, without the content hash having done anything.
+    """
     import numpy as np, soundfile as sf
 
     c, conn = client
@@ -1016,12 +1022,27 @@ def test_importing_the_same_file_twice_analyses_it_once(client, tmp_path):
     data = path.read_bytes()
 
     first = c.post("/api/import", files={"file": ("riff.wav", data, "audio/wav")}).json()
+    assert first["id"].startswith("file:")
+
+    # The worker has finished: an analysis now exists at the app's engine
+    # version, and the job that produced it is done, not pending.
+    db.save_analysis(conn, Analysis(
+        spotify_id=first["id"], engine_version="chroma-1",
+        key=KeyEstimate(0, "major", 0.85, True), tempo=100.0,
+        beat_grid=BeatGrid([0.0], 100.0), chord_segments=[],
+        source_url="u", source_duration_ms=1000, time_scale=1.0,
+        sync_offset_ms=0, flags=[], chord_confidence_mean=0.0))
+    conn.execute("UPDATE job SET state='done' WHERE spotify_id=?", (first["id"],))
+    conn.commit()
+
     second = c.post("/api/import", files={"file": ("riff.wav", data, "audio/wav")}).json()
 
-    assert first["id"] == second["id"]
-    assert first["id"].startswith("file:")
+    assert second["id"] == first["id"]
     assert conn.execute("SELECT COUNT(*) c FROM track").fetchone()["c"] == 1
     assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM job WHERE state IN ('pending','running')"
+    ).fetchone()["c"] == 0, "re-importing an already-analysed file must not queue a new job"
 
 
 def test_importing_needs_no_account(tmp_path, monkeypatch):

@@ -332,7 +332,11 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
 
         title = Path(file.filename or "Imported song").stem
         db.upsert_track(conn, track_id, "Imported", title, None, 0)
-        db.enqueue_job(conn, track_id)
+        # Same guard as analyze_top and get_track: the content hash is the
+        # whole point, so a re-import that already has an analysis at this
+        # engine version must not queue a redundant job.
+        if db.get_analysis(conn, track_id, engine_version) is None:
+            db.enqueue_job(conn, track_id)
         return {"id": track_id, "title": title}
 
     @app.get("/api/me/top")
