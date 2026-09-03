@@ -163,6 +163,70 @@ def test_the_provider_follows_the_id_not_the_session(tmp_path, monkeypatch):
     assert c.get("/api/track/itunes:1440857781").json()["track"]["artist"] == "Pantera"
 
 
+def test_a_library_track_opens_signed_out_from_local_data(tmp_path, monkeypatch):
+    """/api/me/library is deliberately token-free and links straight to tracks
+    like this one — opening it must not need a session either. iTunes has
+    never heard of a Spotify id, so the answer has to come from the track
+    table Kord already filled in."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # note: no save_session
+    db.upsert_track(conn, "t1", "Radiohead", "Creep", "Pablo Honey", 238640)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/track/t1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["track"]["artist"] == "Radiohead"
+    assert body["track"]["title"] == "Creep"
+
+
+def test_a_library_track_with_analysis_opens_signed_out(tmp_path, monkeypatch):
+    """Local data is fully usable signed out, chart and all — not just the
+    track's name."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/track/t1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "done"
+    assert body["track"]["artist"] == "Radiohead"
+
+
+def test_an_unknown_spotify_track_401s_signed_out_rather_than_500ing(tmp_path, monkeypatch):
+    """A bare Spotify id, no session, and no local copy either: iTunes must
+    not be asked for an id it has never heard of, and there is genuinely
+    nothing else to answer with — so this must 401, not crash."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/track/t1")
+    assert response.status_code == 401
+    assert "Spotify" in response.json()["detail"]
+
+
+def test_a_bare_spotify_id_still_resolves_through_spotify_when_signed_in(
+        tmp_path, monkeypatch):
+    """No-regression pin: the local-data fallback above must only kick in
+    when there is no usable session, not whenever the id happens to be a
+    Spotify one."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/track/t1")
+    assert response.status_code == 200
+    assert response.json()["track"]["artist"] == "Radiohead"
+
+
 def test_track_without_analysis_reports_pending_and_enqueues(client):
     c, conn = client
     body = c.get("/api/track/t1").json()

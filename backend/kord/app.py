@@ -381,10 +381,23 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
 
     @app.get("/api/track/{track_id}")
     async def get_track(track_id: str):
-        facts = await (await metadata_for(track_id)).get(track_id)
-        track = facts.to_dict()
-        db.upsert_track(conn, track["id"], track["artist"], track["title"],
-                        track["album"], track["duration_ms"])
+        source = await metadata_for(track_id)
+        if source is itunes and provider_of(track_id) == SPOTIFY:
+            # A bare Spotify ID with no usable session: iTunes has never heard
+            # of it, so asking would raise rather than answer. The track table
+            # is local data — if it is already there, nothing needs a token to
+            # read it back.
+            track = db.get_track(conn, track_id)
+            if track is None:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Connect your Spotify account to open a track "
+                           "Kord hasn't seen before.")
+        else:
+            facts = await source.get(track_id)
+            track = facts.to_dict()
+            db.upsert_track(conn, track["id"], track["artist"], track["title"],
+                            track["album"], track["duration_ms"])
 
         analysis, is_current = db.best_analysis(conn, track_id, engine_version)
         if analysis is not None:
