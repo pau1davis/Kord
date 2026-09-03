@@ -27,6 +27,8 @@ def provider_of(track_id: str) -> str:
     prefix, separator, _rest = track_id.partition(":")
     if not separator:
         return SPOTIFY
+    if prefix == SPOTIFY:
+        raise ValueError("spotify id is written bare, without a prefix")
     if prefix not in PROVIDERS:
         raise ValueError(f"unknown track id provider: {prefix!r}")
     return prefix
