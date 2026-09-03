@@ -30,6 +30,22 @@ class FakeSpotify:
                 "album": "Pablo Honey", "duration_ms": 238640, "image": None}
 
 
+class StubItunes:
+    """Stands in for the iTunes provider. No network."""
+
+    async def search(self, query, limit=20):
+        from kord.metadata.source import TrackFacts
+        return [TrackFacts(id="itunes:1440857781", title="Mouth for War",
+                           artist="Pantera", album="Vulgar Display of Power",
+                           duration_ms=236960, image=None)]
+
+    async def get(self, track_id):
+        from kord.metadata.source import TrackFacts
+        return TrackFacts(id=track_id, title="Mouth for War", artist="Pantera",
+                          album="Vulgar Display of Power",
+                          duration_ms=236960, image=None)
+
+
 def settings_for(tmp_path):
     models = tmp_path / "models"
     models.mkdir(exist_ok=True)
@@ -79,16 +95,72 @@ def test_auth_status_reports_logged_out_without_token(tmp_path):
     assert c.get("/api/auth/status").json()["authenticated"] is False
 
 
-def test_protected_routes_401_without_a_token(tmp_path):
+def test_search_no_longer_requires_a_token(tmp_path):
+    """This used to assert a 401: /api/search demanded a Spotify account.
+    That contract is exactly what this project removes — a signed-out
+    request now gets iTunes results instead of being turned away."""
     conn = db.connect(":memory:")
     db.init_schema(conn)
-    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
-    assert c.get("/api/search", params={"q": "x"}).status_code == 401
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/search", params={"q": "x"})
+    assert response.status_code == 200
+    assert response.json()[0]["id"].startswith("itunes:")
 
 
 def test_search_returns_tracks(client):
     c, _ = client
     assert c.get("/api/search", params={"q": "creep"}).json()[0]["artist"] == "Radiohead"
+
+
+def test_search_works_with_no_account_at_all(tmp_path, monkeypatch):
+    """The point of the whole change: no session, no 401, results anyway."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # note: no save_session
+    app = create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                     metadata=StubItunes())
+    c = TestClient(app)
+
+    response = c.get("/api/search", params={"q": "creep"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["id"].startswith("itunes:")
+
+
+def test_signing_in_upgrades_search_to_spotify(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    body = c.get("/api/search", params={"q": "creep"}).json()
+    assert body[0]["artist"] == "Radiohead"      # FakeSpotify's answer
+    assert ":" not in body[0]["id"]              # a bare Spotify id
+
+
+def test_an_itunes_track_opens_without_a_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    body = c.get("/api/track/itunes:1440857781").json()
+    assert body["track"]["artist"] == "Pantera"
+    assert body["status"] == "pending"
+
+
+def test_the_provider_follows_the_id_not_the_session(tmp_path, monkeypatch):
+    """A signed-in user opening an iTunes track must not ask Spotify for an ID
+    it has never heard of."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    assert c.get("/api/track/itunes:1440857781").json()["track"]["artist"] == "Pantera"
 
 
 def test_track_without_analysis_reports_pending_and_enqueues(client):

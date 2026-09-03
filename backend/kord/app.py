@@ -165,7 +165,7 @@ def _auth_problem(headline: str, detail: str) -> HTMLResponse:
     )
 
 
-def create_app(settings: Settings, spotify, conn) -> FastAPI:
+def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
     app = FastAPI(title="Kord")
     app.state.verifier = None
     engine_version = resolve_engine_version(settings)
@@ -200,6 +200,29 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
         raise HTTPException(
             status_code=401, detail="Connect your Spotify account to search.")
+
+    from kord.metadata.ids import SPOTIFY, provider_of
+    from kord.metadata.itunes import ItunesMetadata
+    from kord.metadata.spotify_source import SpotifyMetadata
+
+    itunes = metadata or ItunesMetadata()
+    spotify_metadata = SpotifyMetadata(spotify, require_token)
+
+    async def metadata_for(track_id: str | None = None):
+        """Which catalogue answers this request.
+
+        An existing ID decides on its own — a signed-in user opening an iTunes
+        track must not ask Spotify for an ID it has never heard of. Otherwise a
+        usable session upgrades search to Spotify, whose catalogue is better;
+        with no session iTunes answers and nothing 401s.
+
+        Per request, not cached at startup, so signing in takes effect at once.
+        """
+        if track_id is not None and provider_of(track_id) != SPOTIFY:
+            return itunes
+        session = db.load_session(conn)
+        usable = bool(session and (not session["expired"] or session["refresh_token"]))
+        return spotify_metadata if usable else itunes
 
     @app.get("/api/health")
     async def health():
@@ -273,7 +296,8 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
     @app.get("/api/search")
     async def search(q: str = Query(min_length=1)):
-        return await spotify.search_tracks(q, await require_token())
+        source = await metadata_for()
+        return [facts.to_dict() for facts in await source.search(q)]
 
     @app.get("/api/me/top")
     async def me_top():
@@ -357,7 +381,8 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
     @app.get("/api/track/{track_id}")
     async def get_track(track_id: str):
-        track = await spotify.get_track(track_id, await require_token())
+        facts = await (await metadata_for(track_id)).get(track_id)
+        track = facts.to_dict()
         db.upsert_track(conn, track["id"], track["artist"], track["title"],
                         track["album"], track["duration_ms"])
 
