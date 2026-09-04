@@ -202,7 +202,7 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
         raise HTTPException(
             status_code=401, detail="Connect your Spotify account to search.")
 
-    from kord.metadata.ids import SPOTIFY, provider_of
+    from kord.metadata.ids import ITUNES, SPOTIFY, provider_of
     from kord.metadata.itunes import ItunesMetadata
     from kord.metadata.spotify_source import SpotifyMetadata
 
@@ -442,11 +442,15 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
     @app.get("/api/track/{track_id}")
     async def get_track(track_id: str):
         source = await metadata_for(track_id)
-        if source is itunes and provider_of(track_id) == SPOTIFY:
-            # A bare Spotify ID with no usable session: iTunes has never heard
-            # of it, so asking would raise rather than answer. The track table
-            # is local data — if it is already there, nothing needs a token to
-            # read it back.
+        if source is itunes and provider_of(track_id) != ITUNES:
+            # No catalogue can answer this one, for one of two reasons that
+            # amount to the same thing: a file: id is a content hash, which
+            # no catalogue was ever going to recognise; a bare Spotify id
+            # falls back to iTunes only when there is no usable session,
+            # and iTunes has never heard of a Spotify id either way. Asking
+            # would raise rather than answer, so this is local data or
+            # nothing — if it is already in the track table, no token (or
+            # catalogue) is needed to read it back.
             track = db.get_track(conn, track_id)
             if track is None:
                 raise HTTPException(
@@ -454,7 +458,15 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
                     detail="Connect your Spotify account to open a track "
                            "Kord hasn't seen before.")
         else:
-            facts = await source.get(track_id)
+            try:
+                facts = await source.get(track_id)
+            except LookupError as exc:
+                # The provider itself has nothing — a track that has since
+                # been delisted, most often — which is a fact about the
+                # catalogue, not a server failure. Not findable, not
+                # forbidden: pass the provider's own words through, the same
+                # way spotify_error_handler does for Spotify's.
+                raise HTTPException(status_code=404, detail=str(exc)) from None
             track = facts.to_dict()
             db.upsert_track(conn, track["id"], track["artist"], track["title"],
                             track["album"], track["duration_ms"])

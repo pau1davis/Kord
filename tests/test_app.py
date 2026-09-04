@@ -41,9 +41,26 @@ class StubItunes:
 
     async def get(self, track_id):
         from kord.metadata.source import TrackFacts
+        # Mirrors the real provider: it only recognises the id it was
+        # stocked with, and raises — never fabricates a match — for
+        # anything else, the same way iTunes' lookup does for an id it
+        # has never heard of (a content hash, most importantly).
+        if track_id != "itunes:1440857781":
+            raise LookupError(f"iTunes has no track {track_id}")
         return TrackFacts(id=track_id, title="Mouth for War", artist="Pantera",
                           album="Vulgar Display of Power",
                           duration_ms=236960, image=None)
+
+
+class StubItunesMissing:
+    """A provider that genuinely has nothing — a track Apple has since
+    delisted. No network."""
+
+    async def search(self, query, limit=20):
+        return []
+
+    async def get(self, track_id):
+        raise LookupError(f"iTunes has no track {track_id}")
 
 
 def settings_for(tmp_path):
@@ -1056,3 +1073,66 @@ def test_importing_needs_no_account(tmp_path, monkeypatch):
     assert c.post("/api/import",
                   files={"file": ("x.wav", p.read_bytes(), "audio/wav")}
                   ).status_code == 200
+
+
+def test_import_round_trip_opens_the_track(tmp_path, monkeypatch):
+    """The cross-task seam task 1 and task 5 each missed: an import returns
+    a file: id, and the only path the frontend has to open it is
+    GET /api/track/<that id>. Before the fix, metadata_for routes every
+    non-Spotify id to iTunes with no case for file:, so this 500s instead
+    of ever showing the analysis that finished in the background."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    import numpy as np, soundfile as sf
+    sr = 22050
+    path = tmp_path / "riff.wav"
+    sf.write(path, np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype("float32"), sr)
+
+    imported = c.post(
+        "/api/import", files={"file": ("riff.wav", path.read_bytes(), "audio/wav")}
+    ).json()
+    assert imported["id"].startswith("file:")
+
+    response = c.get(f"/api/track/{imported['id']}")
+    assert response.status_code == 200
+    assert response.json()["track"]["title"] == imported["title"]
+
+
+def test_an_imported_track_opens_with_no_session_at_all(tmp_path, monkeypatch):
+    """Importing needs no account, so neither can opening the result — the
+    file: id has no catalogue at all, session or not."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # no session
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    import numpy as np, soundfile as sf
+    sr = 22050
+    path = tmp_path / "riff.wav"
+    sf.write(path, np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype("float32"), sr)
+
+    imported = c.post(
+        "/api/import", files={"file": ("riff.wav", path.read_bytes(), "audio/wav")}
+    ).json()
+
+    response = c.get(f"/api/track/{imported['id']}")
+    assert response.status_code == 200
+    assert response.json()["track"]["title"] == imported["title"]
+
+
+def test_a_delisted_itunes_track_errors_clearly_rather_than_500ing(tmp_path, monkeypatch):
+    """Cleaning up exactly this failure was one of the goals of this branch:
+    a track opened last month that Apple has since dropped from the
+    catalogue must not surface as a bare 500."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunesMissing()))
+    response = c.get("/api/track/itunes:999999")
+    assert response.status_code == 404
+    assert response.json()["detail"]
