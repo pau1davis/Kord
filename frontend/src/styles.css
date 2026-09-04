@@ -427,6 +427,10 @@ body {
 
 .empty p { color: var(--text-dim); margin: 0; }
 .empty p + p { margin-top: 0.75rem; }
+/* Import sits outside the grid contexts .sep is usually placed in (the
+   mixer, the tab sheet), so it needs its own top margin to match the
+   spacing every paragraph above it already has. */
+.empty .sep { margin-top: 0.75rem; }
 .empty code {
   font-family: ui-monospace, monospace; font-size: 0.9em; color: var(--brass);
 }
@@ -435,6 +439,31 @@ body {
   border-bottom: 1px solid color-mix(in srgb, var(--brass) 45%, transparent);
 }
 .empty a:hover { border-bottom-color: var(--brass); }
+
+/* Songs opened locally, offered on the signed-out home screen: the same
+   uppercase-mono label as `.shelf-label` elsewhere, but a plain list of rows
+   rather than a photo grid — there is no cached art for local tracks, and a
+   column this narrow has no room for one anyway. */
+.empty .shelf-label { margin: 1.25rem 0 0.6rem; }
+.shelf-list {
+  list-style: none; margin: 0 0 1rem; padding: 0;
+  border-top: 1px solid var(--line);
+}
+.shelf-list li { border-bottom: 1px solid var(--line); }
+.shelf-list button {
+  display: grid; gap: 0.15rem; width: 100%; text-align: left;
+  background: none; border: 0; cursor: pointer; padding: 0.6rem 0;
+  color: inherit; font: inherit; border-radius: var(--radius);
+}
+.shelf-list button:hover .title { color: var(--brass); }
+.shelf-list .title {
+  font: 500 0.9rem var(--body); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.shelf-list .artist {
+  font: 400 0.72rem var(--mono); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .mood-field .blob,

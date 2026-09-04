@@ -202,6 +202,22 @@ def upsert_track(conn, spotify_id, artist, title, album, duration_ms) -> None:
     conn.commit()
 
 
+def get_track(conn, spotify_id: str) -> dict | None:
+    """The locally stored facts for a track, or None if it has never been seen.
+
+    Local data — nothing that touches only this needs a token.
+    """
+    row = conn.execute(
+        "SELECT spotify_id, artist, title, album, duration_ms FROM track "
+        "WHERE spotify_id=?", (spotify_id,)).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["spotify_id"], "artist": row["artist"], "title": row["title"],
+        "album": row["album"], "duration_ms": row["duration_ms"], "image": None,
+    }
+
+
 def save_analysis(conn, analysis: Analysis) -> None:
     conn.execute(
         """INSERT INTO analysis (spotify_id, engine_version, payload)

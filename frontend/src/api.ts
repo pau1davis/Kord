@@ -147,6 +147,8 @@ export type Library = {
 
 export const getLibrary = () => json<Library>("/api/me/library");
 export const getRecent = () => json<TrackSummary[]>("/api/me/recent");
+export const getRecentlyOpened = () =>
+  json<TrackSummary[]>("/api/library/recent");
 
 export type TabState = "none" | "pending" | "running" | "done" | "failed" | "unavailable";
 
@@ -180,3 +182,12 @@ export const BASS_TUNINGS = [
 export const setTempo = (id: string, factor: number) =>
   json<{ tempo_factor: number }>(
     `/api/track/${id}/tempo?factor=${factor}`, { method: "POST" });
+
+/** Analyse a file the player already has. Goes through `json`, like every
+ *  other call here, so a non-2xx (an empty file, a broken upload) surfaces
+ *  as an `ApiError` instead of a response with no `id`. */
+export const importFile = (file: File) => {
+  const body = new FormData();
+  body.append("file", file);
+  return json<{ id: string; title: string }>("/api/import", { method: "POST", body });
+};

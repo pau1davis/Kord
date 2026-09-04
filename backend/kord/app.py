@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import (
     FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse,
 )
@@ -165,7 +166,7 @@ def _auth_problem(headline: str, detail: str) -> HTMLResponse:
     )
 
 
-def create_app(settings: Settings, spotify, conn) -> FastAPI:
+def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
     app = FastAPI(title="Kord")
     app.state.verifier = None
     engine_version = resolve_engine_version(settings)
@@ -200,6 +201,29 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
         raise HTTPException(
             status_code=401, detail="Connect your Spotify account to search.")
+
+    from kord.metadata.ids import ITUNES, SPOTIFY, provider_of
+    from kord.metadata.itunes import ItunesMetadata
+    from kord.metadata.spotify_source import SpotifyMetadata
+
+    itunes = metadata or ItunesMetadata()
+    spotify_metadata = SpotifyMetadata(spotify, require_token)
+
+    async def metadata_for(track_id: str | None = None):
+        """Which catalogue answers this request.
+
+        An existing ID decides on its own — a signed-in user opening an iTunes
+        track must not ask Spotify for an ID it has never heard of. Otherwise a
+        usable session upgrades search to Spotify, whose catalogue is better;
+        with no session iTunes answers and nothing 401s.
+
+        Per request, not cached at startup, so signing in takes effect at once.
+        """
+        if track_id is not None and provider_of(track_id) != SPOTIFY:
+            return itunes
+        session = db.load_session(conn)
+        usable = bool(session and (not session["expired"] or session["refresh_token"]))
+        return spotify_metadata if usable else itunes
 
     @app.get("/api/health")
     async def health():
@@ -273,7 +297,47 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
     @app.get("/api/search")
     async def search(q: str = Query(min_length=1)):
-        return await spotify.search_tracks(q, await require_token())
+        source = await metadata_for()
+        return [facts.to_dict() for facts in await source.search(q)]
+
+    @app.post("/api/import")
+    async def import_file(file: UploadFile = File(...)):
+        """Analyse an audio file the player already has.
+
+        For music the catalogues do not have — unreleased songs, your own
+        band's recordings, a rehearsal tape. Needs no account, because nothing
+        about it involves a catalogue.
+        """
+        import hashlib
+
+        from kord.metadata.ids import FILE, namespaced
+
+        payload = await file.read()
+        if not payload:
+            raise HTTPException(status_code=400, detail="that file is empty")
+
+        # Content hash, not filename: importing the same song twice should find
+        # the existing analysis rather than redo three minutes of work.
+        track_id = namespaced(FILE, hashlib.sha256(payload).hexdigest()[:24])
+        suffix = Path(file.filename or "").suffix.lower() or ".wav"
+
+        store = AudioStore(settings.audio_dir, settings.audio_cap_bytes)
+        if store.path_for(track_id) is None:
+            scratch = settings.scratch_dir / "import"
+            scratch.mkdir(parents=True, exist_ok=True)
+            staged = scratch / f"{track_id.replace(':', '_')}{suffix}"
+            staged.write_bytes(payload)
+            store.retain(track_id, staged)
+            staged.unlink(missing_ok=True)
+
+        title = Path(file.filename or "Imported song").stem
+        db.upsert_track(conn, track_id, "Imported", title, None, 0)
+        # Same guard as analyze_top and get_track: the content hash is the
+        # whole point, so a re-import that already has an analysis at this
+        # engine version must not queue a redundant job.
+        if db.get_analysis(conn, track_id, engine_version) is None:
+            db.enqueue_job(conn, track_id)
+        return {"id": track_id, "title": title}
 
     @app.get("/api/me/top")
     async def me_top():
@@ -283,6 +347,26 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
     async def me_recent():
         """What you were just listening to on Spotify, ready to learn."""
         return await spotify.recently_played(await require_token())
+
+    @app.get("/api/library/recent")
+    async def library_recent(limit: int = 8):
+        """Songs opened in Kord, most recent first.
+
+        Local data, so no token: under /api/library rather than /api/me, which
+        is the prefix that means "needs Spotify". Shaped like the frontend's
+        TrackSummary (id/title/artist/album/duration_ms/image) rather than a
+        raw `dict(row)` of the track table, whose primary key is spotify_id
+        and which has no image column — the same mapping db.get_track already
+        does, so a picked row can be opened the same way any other track is.
+        """
+        return [
+            {
+                "id": row["spotify_id"], "title": row["title"],
+                "artist": row["artist"], "album": row["album"],
+                "duration_ms": row["duration_ms"], "image": None,
+            }
+            for row in db.recently_opened(conn, limit=limit)
+        ]
 
     @app.get("/api/me/library")
     async def me_library():
@@ -357,9 +441,35 @@ def create_app(settings: Settings, spotify, conn) -> FastAPI:
 
     @app.get("/api/track/{track_id}")
     async def get_track(track_id: str):
-        track = await spotify.get_track(track_id, await require_token())
-        db.upsert_track(conn, track["id"], track["artist"], track["title"],
-                        track["album"], track["duration_ms"])
+        source = await metadata_for(track_id)
+        if source is itunes and provider_of(track_id) != ITUNES:
+            # No catalogue can answer this one, for one of two reasons that
+            # amount to the same thing: a file: id is a content hash, which
+            # no catalogue was ever going to recognise; a bare Spotify id
+            # falls back to iTunes only when there is no usable session,
+            # and iTunes has never heard of a Spotify id either way. Asking
+            # would raise rather than answer, so this is local data or
+            # nothing — if it is already in the track table, no token (or
+            # catalogue) is needed to read it back.
+            track = db.get_track(conn, track_id)
+            if track is None:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Connect your Spotify account to open a track "
+                           "Kord hasn't seen before.")
+        else:
+            try:
+                facts = await source.get(track_id)
+            except LookupError as exc:
+                # The provider itself has nothing — a track that has since
+                # been delisted, most often — which is a fact about the
+                # catalogue, not a server failure. Not findable, not
+                # forbidden: pass the provider's own words through, the same
+                # way spotify_error_handler does for Spotify's.
+                raise HTTPException(status_code=404, detail=str(exc)) from None
+            track = facts.to_dict()
+            db.upsert_track(conn, track["id"], track["artist"], track["title"],
+                            track["album"], track["duration_ms"])
 
         analysis, is_current = db.best_analysis(conn, track_id, engine_version)
         if analysis is not None:

@@ -30,6 +30,39 @@ class FakeSpotify:
                 "album": "Pablo Honey", "duration_ms": 238640, "image": None}
 
 
+class StubItunes:
+    """Stands in for the iTunes provider. No network."""
+
+    async def search(self, query, limit=20):
+        from kord.metadata.source import TrackFacts
+        return [TrackFacts(id="itunes:1440857781", title="Mouth for War",
+                           artist="Pantera", album="Vulgar Display of Power",
+                           duration_ms=236960, image=None)]
+
+    async def get(self, track_id):
+        from kord.metadata.source import TrackFacts
+        # Mirrors the real provider: it only recognises the id it was
+        # stocked with, and raises — never fabricates a match — for
+        # anything else, the same way iTunes' lookup does for an id it
+        # has never heard of (a content hash, most importantly).
+        if track_id != "itunes:1440857781":
+            raise LookupError(f"iTunes has no track {track_id}")
+        return TrackFacts(id=track_id, title="Mouth for War", artist="Pantera",
+                          album="Vulgar Display of Power",
+                          duration_ms=236960, image=None)
+
+
+class StubItunesMissing:
+    """A provider that genuinely has nothing — a track Apple has since
+    delisted. No network."""
+
+    async def search(self, query, limit=20):
+        return []
+
+    async def get(self, track_id):
+        raise LookupError(f"iTunes has no track {track_id}")
+
+
 def settings_for(tmp_path):
     models = tmp_path / "models"
     models.mkdir(exist_ok=True)
@@ -79,16 +112,136 @@ def test_auth_status_reports_logged_out_without_token(tmp_path):
     assert c.get("/api/auth/status").json()["authenticated"] is False
 
 
-def test_protected_routes_401_without_a_token(tmp_path):
+def test_search_no_longer_requires_a_token(tmp_path):
+    """This used to assert a 401: /api/search demanded a Spotify account.
+    That contract is exactly what this project removes — a signed-out
+    request now gets iTunes results instead of being turned away."""
     conn = db.connect(":memory:")
     db.init_schema(conn)
-    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
-    assert c.get("/api/search", params={"q": "x"}).status_code == 401
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/search", params={"q": "x"})
+    assert response.status_code == 200
+    assert response.json()[0]["id"].startswith("itunes:")
 
 
 def test_search_returns_tracks(client):
     c, _ = client
     assert c.get("/api/search", params={"q": "creep"}).json()[0]["artist"] == "Radiohead"
+
+
+def test_search_works_with_no_account_at_all(tmp_path, monkeypatch):
+    """The point of the whole change: no session, no 401, results anyway."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # note: no save_session
+    app = create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                     metadata=StubItunes())
+    c = TestClient(app)
+
+    response = c.get("/api/search", params={"q": "creep"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["id"].startswith("itunes:")
+
+
+def test_signing_in_upgrades_search_to_spotify(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    body = c.get("/api/search", params={"q": "creep"}).json()
+    assert body[0]["artist"] == "Radiohead"      # FakeSpotify's answer
+    assert ":" not in body[0]["id"]              # a bare Spotify id
+
+
+def test_an_itunes_track_opens_without_a_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    body = c.get("/api/track/itunes:1440857781").json()
+    assert body["track"]["artist"] == "Pantera"
+    assert body["status"] == "pending"
+
+
+def test_the_provider_follows_the_id_not_the_session(tmp_path, monkeypatch):
+    """A signed-in user opening an iTunes track must not ask Spotify for an ID
+    it has never heard of."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    assert c.get("/api/track/itunes:1440857781").json()["track"]["artist"] == "Pantera"
+
+
+def test_a_library_track_opens_signed_out_from_local_data(tmp_path, monkeypatch):
+    """/api/me/library is deliberately token-free and links straight to tracks
+    like this one — opening it must not need a session either. iTunes has
+    never heard of a Spotify id, so the answer has to come from the track
+    table Kord already filled in."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # note: no save_session
+    db.upsert_track(conn, "t1", "Radiohead", "Creep", "Pablo Honey", 238640)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/track/t1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["track"]["artist"] == "Radiohead"
+    assert body["track"]["title"] == "Creep"
+
+
+def test_a_library_track_with_analysis_opens_signed_out(tmp_path, monkeypatch):
+    """Local data is fully usable signed out, chart and all — not just the
+    track's name."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    save_fixture_analysis(conn, [ChordSegment(0.0, 4.0, 0, "major", 0.9)])
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/track/t1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "done"
+    assert body["track"]["artist"] == "Radiohead"
+
+
+def test_an_unknown_spotify_track_401s_signed_out_rather_than_500ing(tmp_path, monkeypatch):
+    """A bare Spotify id, no session, and no local copy either: iTunes must
+    not be asked for an id it has never heard of, and there is genuinely
+    nothing else to answer with — so this must 401, not crash."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/track/t1")
+    assert response.status_code == 401
+    assert "Spotify" in response.json()["detail"]
+
+
+def test_a_bare_spotify_id_still_resolves_through_spotify_when_signed_in(
+        tmp_path, monkeypatch):
+    """No-regression pin: the local-data fallback above must only kick in
+    when there is no usable session, not whenever the id happens to be a
+    Spotify one."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    response = c.get("/api/track/t1")
+    assert response.status_code == 200
+    assert response.json()["track"]["artist"] == "Radiohead"
 
 
 def test_track_without_analysis_reports_pending_and_enqueues(client):
@@ -621,6 +774,36 @@ def test_library_without_history_has_nothing_to_resume(client):
     assert body["analyzed"] == 0
 
 
+def test_recently_opened_needs_no_account(tmp_path, monkeypatch):
+    """It is local data. Requiring a token for it would be the exact mistake
+    this whole change exists to undo."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # no session
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    assert c.get("/api/library/recent").status_code == 200
+
+
+def test_recently_opened_is_shaped_like_a_track_the_frontend_can_open(
+    tmp_path, monkeypatch,
+):
+    """The row's primary key is spotify_id and it has no image column. Serve
+    it as `dict(row)` and the id the frontend needs to reopen the track is
+    just missing, so picking one from the list silently does nothing."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "t1", "Radiohead", "Creep", "Pablo Honey", 238640)
+    conn.execute("UPDATE track SET last_played_at='2026-08-14' WHERE spotify_id='t1'")
+    conn.commit()
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    body = c.get("/api/library/recent").json()
+    assert body == [{
+        "id": "t1", "title": "Creep", "artist": "Radiohead",
+        "album": "Pablo Honey", "duration_ms": 238640, "image": None,
+    }]
+
+
 def _analysis_with_tuning(cents, agreement, flags=()):
     from kord.models import Tuning
     return Analysis(
@@ -836,3 +1019,120 @@ def test_an_absurd_tempo_factor_is_refused(client):
     c, _ = client
     assert c.post("/api/track/t1/tempo?factor=1.03").status_code == 400
     assert c.post("/api/track/t1/tempo?factor=3").status_code == 400
+
+
+def test_importing_the_same_file_twice_analyses_it_once(client, tmp_path):
+    """The ID is a content hash, so a re-import finds the existing analysis
+    rather than spending three minutes redoing it.
+
+    Deliberately simulates the first job having already finished before the
+    second POST arrives — a re-import while the first job is still pending
+    would pass this assertion for the wrong reason, via enqueue_job's
+    pending/running dedup, without the content hash having done anything.
+    """
+    import numpy as np, soundfile as sf
+
+    c, conn = client
+    sr = 22050
+    path = tmp_path / "riff.wav"
+    sf.write(path, np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype("float32"), sr)
+    data = path.read_bytes()
+
+    first = c.post("/api/import", files={"file": ("riff.wav", data, "audio/wav")}).json()
+    assert first["id"].startswith("file:")
+
+    # The worker has finished: an analysis now exists at the app's engine
+    # version, and the job that produced it is done, not pending.
+    db.save_analysis(conn, Analysis(
+        spotify_id=first["id"], engine_version="chroma-1",
+        key=KeyEstimate(0, "major", 0.85, True), tempo=100.0,
+        beat_grid=BeatGrid([0.0], 100.0), chord_segments=[],
+        source_url="u", source_duration_ms=1000, time_scale=1.0,
+        sync_offset_ms=0, flags=[], chord_confidence_mean=0.0))
+    conn.execute("UPDATE job SET state='done' WHERE spotify_id=?", (first["id"],))
+    conn.commit()
+
+    second = c.post("/api/import", files={"file": ("riff.wav", data, "audio/wav")}).json()
+
+    assert second["id"] == first["id"]
+    assert conn.execute("SELECT COUNT(*) c FROM track").fetchone()["c"] == 1
+    assert conn.execute("SELECT COUNT(*) c FROM job").fetchone()["c"] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM job WHERE state IN ('pending','running')"
+    ).fetchone()["c"] == 0, "re-importing an already-analysed file must not queue a new job"
+
+
+def test_importing_needs_no_account(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # no session
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    import numpy as np, soundfile as sf
+    p = tmp_path / "x.wav"
+    sf.write(p, np.zeros(2205, dtype="float32"), 22050)
+    assert c.post("/api/import",
+                  files={"file": ("x.wav", p.read_bytes(), "audio/wav")}
+                  ).status_code == 200
+
+
+def test_import_round_trip_opens_the_track(tmp_path, monkeypatch):
+    """The cross-task seam task 1 and task 5 each missed: an import returns
+    a file: id, and the only path the frontend has to open it is
+    GET /api/track/<that id>. Before the fix, metadata_for routes every
+    non-Spotify id to iTunes with no case for file:, so this 500s instead
+    of ever showing the analysis that finished in the background."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.save_session(conn, "tok", "rt", 3600)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    import numpy as np, soundfile as sf
+    sr = 22050
+    path = tmp_path / "riff.wav"
+    sf.write(path, np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype("float32"), sr)
+
+    imported = c.post(
+        "/api/import", files={"file": ("riff.wav", path.read_bytes(), "audio/wav")}
+    ).json()
+    assert imported["id"].startswith("file:")
+
+    response = c.get(f"/api/track/{imported['id']}")
+    assert response.status_code == 200
+    assert response.json()["track"]["title"] == imported["title"]
+
+
+def test_an_imported_track_opens_with_no_session_at_all(tmp_path, monkeypatch):
+    """Importing needs no account, so neither can opening the result — the
+    file: id has no catalogue at all, session or not."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)          # no session
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunes()))
+    import numpy as np, soundfile as sf
+    sr = 22050
+    path = tmp_path / "riff.wav"
+    sf.write(path, np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype("float32"), sr)
+
+    imported = c.post(
+        "/api/import", files={"file": ("riff.wav", path.read_bytes(), "audio/wav")}
+    ).json()
+
+    response = c.get(f"/api/track/{imported['id']}")
+    assert response.status_code == 200
+    assert response.json()["track"]["title"] == imported["title"]
+
+
+def test_a_delisted_itunes_track_errors_clearly_rather_than_500ing(tmp_path, monkeypatch):
+    """Cleaning up exactly this failure was one of the goals of this branch:
+    a track opened last month that Apple has since dropped from the
+    catalogue must not surface as a bare 500."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn,
+                              metadata=StubItunesMissing()))
+    response = c.get("/api/track/itunes:999999")
+    assert response.status_code == 404
+    assert response.json()["detail"]
