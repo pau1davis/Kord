@@ -18,6 +18,9 @@ class Settings:
     audio_cap_bytes: int
     stems_dir: Path
     tabs_dir: Path
+    # The built frontend, when one is bundled. None in development, where
+    # Vite serves the UI on its own port.
+    ui_dir: Path | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -60,4 +63,6 @@ class Settings:
             audio_cap_bytes=int(cap_gb * 1024 ** 3),
             stems_dir=stems,
             tabs_dir=tabs,
+            # Set by the packaged app, which has no dev server to fall back on.
+            ui_dir=Path(os.environ["KORD_UI_DIR"]) if os.environ.get("KORD_UI_DIR") else None,
         )

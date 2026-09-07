@@ -74,7 +74,8 @@ def settings_for(tmp_path):
     tabs.mkdir(exist_ok=True)
     return Settings("cid", "http://127.0.0.1:8000/api/auth/callback",
                     tmp_path / "x.db", tmp_path, "chroma-1", models,
-                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3, stems, tabs)
+                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3, stems, tabs,
+                    None)
 
 
 @pytest.fixture
@@ -340,20 +341,28 @@ def test_build_app_is_a_zero_argument_uvicorn_factory(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("client_id", ["", "your_client_id_here"])
-def test_build_app_refuses_to_start_without_a_client_id(
-        tmp_path, monkeypatch, client_id):
-    """Starting uvicorn directly skips run.sh, and with it the `source .env`.
+def test_build_app_warns_about_a_missing_client_id_but_still_starts(
+        tmp_path, monkeypatch, caplog, client_id):
+    """This test previously asserted the opposite — that build_app refuses to
+    start without a client id. That was right while Spotify was mandatory: it
+    turned "launched uvicorn without sourcing .env" from an afternoon of
+    confusion into one line of output.
 
-    The app then came up looking healthy and signed in while every token
-    refresh went to Spotify with an empty client id and was refused. Failing at
-    startup costs one line of output instead of an afternoon.
-    """
+    Spotify is optional now, and the packaged Mac app ships with no
+    credentials at all, so refusing to start would stop it launching for the
+    person it was built for. The developer mistake is still worth naming, so
+    it became a warning."""
+    import logging
+
     from kord.app import build_app
 
     monkeypatch.setenv("KORD_HOME", str(tmp_path))
     monkeypatch.setenv("SPOTIFY_CLIENT_ID", client_id)
-    with pytest.raises(RuntimeError, match="SPOTIFY_CLIENT_ID"):
-        build_app()
+    with caplog.at_level(logging.WARNING):
+        app = build_app()
+
+    assert TestClient(app).get("/api/health").json()["status"] == "ok"
+    assert any("SPOTIFY_CLIENT_ID" in r.message for r in caplog.records)
 
 
 class TokenSpotify(FakeSpotify):
@@ -1136,3 +1145,67 @@ def test_a_delisted_itunes_track_errors_clearly_rather_than_500ing(tmp_path, mon
     response = c.get("/api/track/itunes:999999")
     assert response.status_code == 404
     assert response.json()["detail"]
+
+
+def test_the_app_starts_without_a_spotify_client_id(tmp_path, monkeypatch, caplog):
+    """Spotify is optional now, so demanding its client id at startup would
+    stop the packaged app from launching at all for someone who has no
+    account. The guard existed to catch a developer running uvicorn without
+    sourcing .env — that is worth a warning, not a refusal."""
+    import logging
+
+    from kord.app import build_app
+
+    monkeypatch.setenv("KORD_HOME", str(tmp_path))
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "")
+    with caplog.at_level(logging.WARNING):
+        app = build_app()
+    c = TestClient(app)
+    assert c.get("/api/health").json()["status"] == "ok"
+    assert any("spotify" in r.message.lower() for r in caplog.records)
+
+
+def test_search_works_in_the_packaged_app_with_no_credentials(tmp_path, monkeypatch):
+    """The whole point of the bundle: it ships with no client id and search
+    still has to work, because iTunes needs none."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    settings = settings_for(tmp_path)
+    object.__setattr__(settings, "spotify_client_id", "")
+    c = TestClient(create_app(settings, FakeSpotify(), conn, metadata=StubItunes()))
+    assert c.get("/api/search", params={"q": "x"}).status_code == 200
+
+
+def test_the_packaged_app_serves_its_own_ui(tmp_path, monkeypatch):
+    """In the bundle there is no dev server — the backend is the only thing
+    running, so it has to serve the built frontend on the same port. Absent a
+    build, it must not pretend: dev runs from Vite and mounting nothing is
+    correct there."""
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    settings = settings_for(tmp_path)
+
+    ui = tmp_path / "ui"
+    ui.mkdir()
+    (ui / "index.html").write_text("<!doctype html><title>Kord</title>")
+    (ui / "assets").mkdir()
+    (ui / "assets" / "app.js").write_text("console.log('kord')")
+    object.__setattr__(settings, "ui_dir", ui)
+
+    c = TestClient(create_app(settings, FakeSpotify(), conn))
+    assert c.get("/").status_code == 200
+    assert "Kord" in c.get("/").text
+    assert c.get("/assets/app.js").status_code == 200
+    # The API must still win over the static mount.
+    assert c.get("/api/health").json()["status"] == "ok"
+
+
+def test_without_a_built_ui_the_api_still_works(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORD_ENGINE_VERSION", "chroma-1")
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    c = TestClient(create_app(settings_for(tmp_path), FakeSpotify(), conn))
+    assert c.get("/api/health").json()["status"] == "ok"
+    assert c.get("/").status_code == 404

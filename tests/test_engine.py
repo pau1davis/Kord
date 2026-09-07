@@ -22,7 +22,8 @@ def settings_for(tmp_path, engine_version="chroma-1") -> Settings:
     tabs.mkdir(exist_ok=True)
     return Settings("cid", "http://127.0.0.1:8000/api/auth/callback",
                     tmp_path / "k.db", tmp_path, engine_version, models,
-                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3, stems, tabs)
+                    "http://127.0.0.1:5173", audio, 2 * 1024 ** 3, stems, tabs,
+                    None)
 
 
 def test_falls_back_to_chroma_without_weights(tmp_path, monkeypatch):

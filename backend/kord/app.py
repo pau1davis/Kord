@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -28,6 +29,8 @@ from kord.theory.taste import aggregate_palette
 from kord.theory.qualities import NO_CHORD, hue_for
 from kord.theory.roman import roman_numeral
 from kord.theory.scales import note_name, scale_for, uses_sharps
+
+log = logging.getLogger("kord.app")
 
 CONFIDENCE_FLOOR = 0.35
 KEY_CONFIDENCE_FLOOR = 0.6
@@ -133,17 +136,18 @@ def build_app() -> FastAPI:
     from kord.spotify import SpotifyClient
 
     settings = Settings.from_env()
-    # run.sh sources .env and checks this before starting anything. Launching
-    # uvicorn directly — which the README documents — does neither, and the app
-    # then starts looking perfectly healthy: /api/health is fine, the stored
-    # session is still there, and only the token refresh fails, because it goes
-    # to Spotify with an empty client id. Refusing to start says in one line
-    # what that costs an afternoon to work out.
+    # Spotify is optional: search runs on iTunes and needs no credentials, so
+    # a missing client id must not stop the app. It once did, and that guard
+    # was right when Spotify was mandatory — starting uvicorn directly skips
+    # run.sh's `source .env`, and the app then came up looking healthy while
+    # every token refresh failed against an empty client id. That is still
+    # worth saying out loud, but as a warning: the packaged app ships with no
+    # credentials at all and has to launch anyway.
     if settings.spotify_client_id in ("", "your_client_id_here"):
-        raise RuntimeError(
-            "SPOTIFY_CLIENT_ID is not set. Either start Kord with ./run.sh, "
-            "which loads .env for you, or export it first:\n"
-            "    set -a; source .env; set +a")
+        log.warning(
+            "No SPOTIFY_CLIENT_ID, so signing in to Spotify is unavailable. "
+            "Everything else works. If you meant to sign in, start Kord with "
+            "./run.sh, which loads .env for you.")
     conn = db.connect(settings.db_path)
     db.init_schema(conn)
     return create_app(settings, SpotifyClient(settings.spotify_client_id), conn)
@@ -634,5 +638,13 @@ def create_app(settings: Settings, spotify, conn, metadata=None) -> FastAPI:
                 await asyncio.sleep(2)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    # Mounted last, so every /api route above is matched first. html=True
+    # serves index.html for unknown paths, which a single-page app needs and
+    # which is safe here because the API is already claimed.
+    if settings.ui_dir is not None and Path(settings.ui_dir).is_dir():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=str(settings.ui_dir), html=True),
+                  name="ui")
 
     return app
