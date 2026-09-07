@@ -395,3 +395,38 @@ def test_a_failing_engine_records_the_error_and_does_not_raise(tmp_path, monkeyp
 
     assert run_one_tab_job(conn, TabStore(tmp_path / "tabs"), stem_store) == "failed"
     assert "model exploded" in db.tab_job_for(conn, "t1")["error"]
+
+
+def test_an_import_whose_audio_is_gone_says_so_rather_than_searching():
+    """The failure the probe found: with the file missing, pipeline.run was
+    called with audio_path=None, so the worker fell into the search branch and
+    went looking on YouTube for artist "Imported". It only failed safely
+    because an imported track carries duration 0, which rejects every
+    candidate on length — an accident, not a guard.
+    """
+    from kord.queue import run_one_job
+
+    class Store:
+        def path_for(self, track_id):
+            return None          # evicted, or never retained
+
+    class NeverSearches:
+        audio_store = Store()
+
+        def run(self, *args, **kwargs):
+            raise AssertionError("must not search the internet for an import")
+
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    db.upsert_track(conn, "file:abc123", "Imported", "riff", None, 0)
+    db.enqueue_job(conn, "file:abc123")
+
+    assert run_one_job(conn, NeverSearches()) == "unavailable"
+    error = db_job_error(conn, "file:abc123")
+    assert "import" in error.lower(), error
+
+
+def db_job_error(conn, spotify_id):
+    return conn.execute(
+        "SELECT error FROM job WHERE spotify_id=? ORDER BY id DESC LIMIT 1",
+        (spotify_id,)).fetchone()["error"]

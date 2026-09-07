@@ -70,8 +70,18 @@ def run_one_job(conn, pipeline) -> str | None:
     # An imported file is already in the audio store, so the pipeline is handed
     # it rather than sent looking for something it would never find.
     audio_path = None
-    if provider_of(track["spotify_id"]) == FILE and pipeline.audio_store:
-        audio_path = pipeline.audio_store.path_for(track["spotify_id"])
+    if provider_of(track["spotify_id"]) == FILE:
+        audio_path = (pipeline.audio_store.path_for(track["spotify_id"])
+                      if pipeline.audio_store else None)
+        if audio_path is None:
+            # Without the file there is nothing to analyse, and nothing to
+            # find: searching a catalogue for "Imported / <filename>" would
+            # look for a recording that was never published. Say what is
+            # actually wrong instead.
+            db.finish_job(
+                conn, job["id"], "unavailable",
+                "the imported file is no longer stored; import it again")
+            return "unavailable"
 
     try:
         analysis = pipeline.run(

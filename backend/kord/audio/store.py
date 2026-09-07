@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from kord import db
+from kord.metadata.ids import FILE, provider_of
 
 
 class AudioStore:
@@ -69,6 +70,13 @@ class AudioStore:
 
         for row in db.audio_tracks_by_least_recently_played(conn):
             if row["spotify_id"] == protect:
+                continue
+            # An imported file is the only copy Kord has. A downloaded song
+            # can be fetched again, so evicting it costs bandwidth; evicting
+            # an import destroys it, and the track can never be analysed
+            # again. The cap is a disk convenience and it gives way here —
+            # it may be exceeded rather than lose something irreplaceable.
+            if provider_of(row["spotify_id"]) == FILE:
                 continue
             path = self.path_for(row["spotify_id"])
             if path is not None:

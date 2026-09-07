@@ -119,3 +119,39 @@ def test_eviction_keeps_the_analysis(tmp_path, conn):
     store.evict_to_fit(conn, incoming_bytes=100)
     assert store.path_for("t1") is None
     assert db.get_analysis(conn, "t1", "btc-3") is not None
+
+
+def test_an_imported_file_is_never_evicted(tmp_path, conn):
+    """Downloaded audio can be fetched again; an imported file cannot.
+
+    Evicting it deletes the only copy Kord has, and the track becomes
+    unanalysable with nothing to rebuild it from. A cap should only ever
+    reclaim what it can replace.
+    """
+    store = AudioStore(tmp_path / "audio", cap_bytes=1000)
+    for tid, size in (("file:abc123", 400), ("downloaded", 400)):
+        db.upsert_track(conn, tid, "A", tid, "Al", 1000)
+        store.retain(tid, make_source(tmp_path, "x.webm", size))
+        db.set_audio_ext(conn, tid, ".webm")
+    # The import is never played, so the ordering would otherwise pick it
+    # first — never-played sorts as most evictable.
+    db.touch_played(conn, "downloaded")
+
+    evicted = store.evict_to_fit(conn, incoming_bytes=400)
+    assert evicted == ["downloaded"]
+    assert store.path_for("file:abc123") is not None
+
+
+def test_the_cap_may_be_exceeded_rather_than_lose_an_import(tmp_path, conn):
+    """If imports are all that is left, the store goes over its cap. That is
+    the deliberate trade: a cap is a disk-space convenience, and losing a
+    file the user gave us is not recoverable."""
+    store = AudioStore(tmp_path / "audio", cap_bytes=500)
+    for tid in ("file:one", "file:two"):
+        db.upsert_track(conn, tid, "A", tid, "Al", 1000)
+        store.retain(tid, make_source(tmp_path, "x.webm", 400))
+        db.set_audio_ext(conn, tid, ".webm")
+
+    assert store.evict_to_fit(conn, incoming_bytes=400) == []
+    assert store.path_for("file:one") is not None
+    assert store.path_for("file:two") is not None
