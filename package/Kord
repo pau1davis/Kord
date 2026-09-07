@@ -1,0 +1,51 @@
+#!/bin/bash
+# Kord's launcher. Everything it needs is inside the bundle; nothing is
+# assumed about the Mac it runs on.
+set -uo pipefail
+
+RES="$(cd "$(dirname "${BASH_SOURCE[0]}")/../Resources" && pwd)"
+PY="$RES/python/bin/python3"
+
+# Songs, analyses and separated parts live with the user's data, not inside
+# the app — so replacing the app never deletes their library.
+export KORD_HOME="$HOME/Library/Application Support/Kord"
+mkdir -p "$KORD_HOME/models"
+
+# The chord model is shipped read-only in the bundle; Kord expects it under
+# KORD_HOME, so it is placed there once on first run.
+if [ -f "$RES/models/btc_model_large_voca.pt" ] && \
+   [ ! -f "$KORD_HOME/models/btc_model_large_voca.pt" ]; then
+  cp "$RES/models/btc_model_large_voca.pt" "$KORD_HOME/models/"
+fi
+
+export KORD_UI_DIR="$RES/ui"          # the backend serves the UI itself here
+export HF_HOME="$RES/hf"              # separation weights, shipped in the bundle
+export PATH="$RES/bin:$PATH"          # the static ffmpeg, not Homebrew's
+export PYTHONHOME=""                  # never inherit a system Python
+export KORD_UI_URL="http://127.0.0.1:8000"
+
+LOG="$KORD_HOME/kord.log"
+exec >>"$LOG" 2>&1
+echo "--- Kord starting $(date) ---"
+
+# Already running? Just show it rather than starting a second copy.
+if curl -s -m 2 http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+  open "http://127.0.0.1:8000"
+  exit 0
+fi
+
+"$PY" -m uvicorn kord.app:build_app --factory --host 127.0.0.1 --port 8000 &
+API=$!
+"$PY" -m kord.queue &
+WORKER=$!
+
+# Stop both when the app is quit, rather than leaving them running.
+trap 'kill $API $WORKER 2>/dev/null' EXIT INT TERM
+
+for _ in $(seq 1 60); do
+  curl -s -m 2 http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break
+  sleep 0.5
+done
+
+open "http://127.0.0.1:8000"
+wait $API

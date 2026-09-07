@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Kord</string>
+  <key>CFBundleDisplayName</key><string>Kord</string>
+  <key>CFBundleIdentifier</key><string>com.pau1davis.kord</string>
+  <key>CFBundleVersion</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleExecutable</key><string>Kord</string>
+  <key>CFBundleIconFile</key><string>kord.icns</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <!-- No dock icon churn: Kord opens a browser window and lives in the
+       background, so it should not present itself as a windowed app. -->
+  <key>LSUIElement</key><false/>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>

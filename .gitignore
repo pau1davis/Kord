@@ -10,3 +10,7 @@ dist/
 spike/
 frontend/dist/
 *.egg-info/
+
+# The Mac bundle: a 1.3GB tree of vendored interpreter, weights and app.
+# Rebuilt by package/build-mac-app.sh; never committed.
+build/
