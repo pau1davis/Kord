@@ -14,6 +14,7 @@ APP="$BUILD/Kord.app"
 RES="$APP/Contents/Resources"
 
 [ -d "$BUILD/python" ] || { echo "Missing $BUILD/python — see package/README-build.md" >&2; exit 1; }
+command -v swiftc >/dev/null || { echo "Missing swiftc — install Xcode Command Line Tools (xcode-select --install)" >&2; exit 1; }
 
 echo "==> building the frontend"
 (cd frontend && npm run build >/dev/null)
@@ -41,9 +42,15 @@ chmod +x "$RES/bin/ffmpeg"
   || echo "    (no demucs weights cached — first separation will download them)"
 
 cp "$ROOT/package/Info.plist" "$APP/Contents/Info.plist"
-cp "$ROOT/package/Kord" "$APP/Contents/MacOS/Kord"
-chmod +x "$APP/Contents/MacOS/Kord"
-[ -f "$ROOT/package/kord.icns" ] && cp "$ROOT/package/kord.icns" "$RES/kord.icns"
+
+echo "==> compiling the app shell"
+# Kord's executable is a real Cocoa app that owns a window, not a script that
+# shells out to `open`. Compiled here rather than shipped as a binary in the
+# repo, and targeted at the oldest macOS the bundle claims to support so it
+# runs on a Mac older than this build machine.
+swiftc -O -target arm64-apple-macosx12.0 \
+  -o "$APP/Contents/MacOS/Kord" "$ROOT/package/Kord.swift"
+[ -f "$ROOT/package/kord.icns" ] && cp "$ROOT/package/kord.icns" "$RES/kord.icns" || true
 
 echo "==> signing (ad-hoc)"
 # Ad-hoc, not notarised: notarising needs a paid Apple Developer ID. Without

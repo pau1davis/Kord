@@ -25,15 +25,27 @@ tar xzf python.tar.gz
 **A static ffmpeg.** Homebrew's is linked against `/opt/homebrew/Cellar/...`,
 which will not exist on anyone else's Mac, so copying that binary produces one
 that cannot run. `imageio-ffmpeg` ships a static arm64 build with no Homebrew
-links; the launcher puts it first on `PATH`.
+links; the app puts it first on `PATH`.
 
 **The separation weights, shipped.** Demucs pulls `htdemucs_6s` from the
 HuggingFace hub rather than torch's cache — 52MB — so the bundle carries that
-cache and the launcher points `HF_HOME` at it. Without this the first
+cache and the app points `HF_HOME` at it. Without this the first
 separation needs a download.
 
 **The backend serves the UI.** There is no Vite in a bundle, so `KORD_UI_DIR`
 points the API at the built frontend and everything runs on one port.
+
+**A Cocoa shell, not a shell script.** `package/Kord.swift` compiles to the
+bundle's executable: it starts uvicorn and the worker as its own children,
+waits for `/api/health`, and hosts the UI in a `WKWebView`. This replaced a
+script that called `open` on a URL — which gave the user a browser tab rather
+than an app, and left the server running after that tab was closed. Building
+it needs the Xcode Command Line Tools (`xcode-select --install`) on the build
+machine only; the compiled binary has no such dependency.
+
+**A port chosen at launch.** The old script hardcoded 8000, so anything else
+already on that port produced an app that opened to nothing. The shell binds
+port 0 to find a free one and passes it to uvicorn.
 
 **Data lives outside the app**, under `~/Library/Application Support/Kord`, so
 replacing the app never deletes someone's library.

@@ -11,9 +11,15 @@
   <key>CFBundleExecutable</key><string>Kord</string>
   <key>CFBundleIconFile</key><string>kord.icns</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
-  <!-- No dock icon churn: Kord opens a browser window and lives in the
-       background, so it should not present itself as a windowed app. -->
+  <!-- Kord owns a window and a dock icon like any other installed app. -->
   <key>LSUIElement</key><false/>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- The UI is served by Kord's own server over plain HTTP on the loopback
+       interface. App Transport Security blocks cleartext by default, and
+       without this exception the window would come up permanently blank. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key><true/>
+  </dict>
 </dict>
 </plist>

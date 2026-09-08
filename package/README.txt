@@ -16,8 +16,9 @@ TO INSTALL
   2. Double-click  Install.command
   3. Follow the two lines it prints.
 
-  That's it. Kord opens in your web browser and lives in your Applications
-  folder like any other app.
+  That's it. Kord lives in your Applications folder and opens in its own
+  window like any other app. The first launch takes a few seconds while it
+  starts up.
 
 
 IF MACOS SAYS IT CAN'T BE OPENED

@@ -29,8 +29,7 @@ cp -R Kord.app /Applications/ || {
 echo "  Starting Kord..."
 open -a /Applications/Kord.app
 echo
-echo "Done. Kord is in your Applications folder and should open in your"
-echo "browser in a few seconds. From now on, just open it from Applications"
-echo "or Spotlight."
+echo "Done. Kord is in your Applications folder and its window will open in"
+echo "a few seconds. From now on, just open it from Applications or Spotlight."
 echo
 read -p "Press return to close."
