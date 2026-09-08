@@ -66,6 +66,7 @@ final class Kord: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDel
     var splash: NSView!
     var status: NSTextField!
     var children: [Process] = []
+    var signalSources: [DispatchSourceSignal] = []
     let port = freePort()
     var base: String { "http://127.0.0.1:\(port)" }
 
@@ -77,6 +78,8 @@ final class Kord: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDel
         buildMenu()
         buildWindow()
         copyBundledModel()
+        installSignalHandlers()
+        reapStaleServers()
         startServer()
         waitForServer()
     }
@@ -219,6 +222,37 @@ final class Kord: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDel
         }
     }
 
+    /// Cocoa does not turn a signal into applicationWillTerminate: the default
+    /// disposition for SIGTERM ends the process outright, so the cleanup below
+    /// never ran and every force-quit orphaned a uvicorn and a worker that then
+    /// held their port forever. Dispatch sources deliver the signal on the main
+    /// queue instead, where it is safe to do real work.
+    func installSignalHandlers() {
+        for sig in [SIGTERM, SIGINT, SIGHUP] {
+            signal(sig, SIG_IGN)          // the source handles it, not the default
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { [weak self] in
+                self?.shutdown()
+                exit(0)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
+    }
+
+    /// A crash — or a SIGKILL, where no cleanup is possible even in principle —
+    /// still leaves the previous run's servers alive. Reaping them here means
+    /// they cannot accumulate across launches, whatever killed the last one.
+    /// The pattern is this bundle's own interpreter path, so it cannot match
+    /// any other Python on the machine.
+    func reapStaleServers() {
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-f", python.path]
+        try? pkill.run()
+        pkill.waitUntilExit()
+    }
+
     func startServer() {
         spawn(["-m", "uvicorn", "kord.app:build_app", "--factory",
                "--host", "127.0.0.1", "--port", "\(port)"])
@@ -292,10 +326,25 @@ final class Kord: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDel
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
 
+    func applicationWillTerminate(_ note: Notification) { shutdown() }
+
     // Closing the window must stop the server too. The old launcher left
     // uvicorn and the worker running after the browser tab was closed.
-    func applicationWillTerminate(_ note: Notification) {
+    //
+    // Called from both the Cocoa quit path and the signal sources below, so it
+    // has to tolerate running twice.
+    private var didShutDown = false
+    func shutdown() {
+        if didShutDown { return }
+        didShutDown = true
         for task in children where task.isRunning { task.terminate() }
+        // Give uvicorn a moment to close the database cleanly rather than
+        // leaving a WAL behind, but never hang the quit on it.
+        let deadline = Date().addingTimeInterval(3)
+        for task in children {
+            while task.isRunning && Date() < deadline { usleep(50_000) }
+        }
+        for task in children where task.isRunning { kill(task.processIdentifier, SIGKILL) }
         log("--- Kord stopped ---")
     }
 }
