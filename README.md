@@ -100,8 +100,9 @@ dependency on YouTube or Spotify being reachable.
 ```
 backend/kord/
   theory/      chord vocabulary, hues, roman numerals, scales   (pure, no I/O)
-  audio/       source adapters, duration validation, decoding
+  audio/       source adapters, duration validation, decoding, stem separation
   analysis/    recognizers, timbre, key, beats, pipeline
+  tab/         guitar and bass transcription, bars, tunings, fret positions
   spotify.py   OAuth PKCE and search
   queue.py     worker process
   app.py       HTTP API
@@ -113,7 +114,7 @@ test enforces that. Swapping audio providers means writing one adapter.
 
 ## Status
 
-Phase 2. You can play a song back and follow along with it.
+Phase 3. Play along, isolate the parts, and read the tab.
 
 Playback comes from the audio Kord analysed, not from Spotify. That is what
 makes the sync exact: the chord timestamps were measured against this exact
@@ -129,15 +130,33 @@ What works:
   block to jump to it.
 - **The full chord sheet** is still there, collapsed behind a disclosure, and
   every row seeks.
+- **Stem mixer** — Demucs splits the track into parts you can solo or mute
+  against the same timeline. Bleed between stems is expected: they are a
+  practice aid, not a master.
+- **Tab** — guitar and bass, grouped into bars, in the right tuning per part
+  (a bass request answered in guitar tuning would put every fret in the wrong
+  place). Notes below the confidence floor render dimmed, so a guess never
+  reads as a fact.
+- **Mood ring** — a palette over your analysed top tracks on the home screen.
+  It does not wait for the background analysis; it reports how far along it
+  is and colours what it has.
 
 Analysed audio is kept on disk under `~/.kord/audio` so a song is only ever
 downloaded once. The store is capped by `KORD_AUDIO_CAP_GB` (default 2) and
 evicts least-recently-used files when it would go over.
 
-Known rough edges are recorded in
-`docs/notes/2026-08-13-phase-2-verification.md` — most notably
-that stored audio is WebM, which Safari may refuse to play, and that section
-detection is coarse enough to be navigation rather than a verse/chorus map.
+Known rough edges are recorded in the notes under `docs/notes/`:
 
-Listening-history mood ring, recommendations, chart export and bass tablature
-are later phases — see the spec.
+- Stored audio is WebM, which Safari may refuse to play, and section detection
+  is coarse enough to be navigation rather than a verse/chorus map
+  (`2026-08-13-phase-2-verification.md`).
+- Tab is weakest on power chords and dense distortion. Recall is high
+  throughout (0.88–1.00) but the absolute precision figures did not survive
+  scrutiny of the test material; the measurements and what they cannot tell
+  you are in `2026-08-17-transcription-accuracy.md`.
+- Whether each stem *sounds* like its instrument has not been checked by a
+  human — objective measures cannot answer it
+  (`2026-08-14-stems-verification.md`).
+
+Chart export is not built. Recommendations never will be: Spotify deprecated
+that endpoint along with the rest (see the top of this file).
