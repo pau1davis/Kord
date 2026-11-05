@@ -4,7 +4,6 @@ Measuring whether note-level tab can be built honestly, before any interface is
 built on it. Thresholds were agreed in the spec (§7) *before* any number here
 was seen.
 
-Plan: `docs/plans/2026-08-17-kord-tab-foundations.md`
 Spec: `docs/specs/2026-08-17-kord-tab-design.md`
 
 ## Install
